@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -25,11 +25,9 @@ import co.elastic.apm.impl.transaction.Transaction;
 import com.p6spy.engine.common.ConnectionInformation;
 import com.p6spy.engine.common.StatementInformation;
 import com.p6spy.engine.event.SimpleJdbcEventListener;
-import com.p6spy.engine.spy.P6SpyOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.sql.SQLException;
 
 public class ApmJdbcEventListener extends SimpleJdbcEventListener {
@@ -46,25 +44,6 @@ public class ApmJdbcEventListener extends SimpleJdbcEventListener {
         this.elasticApmTracer = elasticApmTracer;
     }
 
-    @Nullable
-    static String getMethod(String sql) {
-        if (sql == null) {
-            return null;
-        }
-        // don't allocate objects for the common case
-        if (sql.startsWith("SELECT") || sql.startsWith("select")) {
-            return "SELECT";
-        }
-        sql = sql.trim();
-        final int indexOfWhitespace = sql.indexOf(' ');
-        if (indexOfWhitespace > 0) {
-            return sql.substring(0, indexOfWhitespace).toUpperCase();
-        } else {
-            // for example COMMIT
-            return sql.toUpperCase();
-        }
-    }
-
     @Override
     public void onAfterGetConnection(ConnectionInformation connectionInformation, SQLException e) {
     }
@@ -75,9 +54,9 @@ public class ApmJdbcEventListener extends SimpleJdbcEventListener {
             return;
         }
         Span span = elasticApmTracer.startSpan();
-        span.setName(getMethod(statementInformation.getStatementQuery()));
+        span.setName(JdbcUtils.getMethod(statementInformation.getStatementQuery()));
         try {
-            String dbVendor = getDbVendor(statementInformation.getConnectionInformation().getConnection().getMetaData().getURL());
+            String dbVendor = JdbcUtils.getDbVendor(statementInformation.getConnectionInformation().getConnection().getMetaData().getURL());
             span.setType("db." + dbVendor + ".sql");
             span.getContext().getDb()
                 .withUser(statementInformation.getConnectionInformation().getConnection().getMetaData().getUserName())
@@ -90,22 +69,6 @@ public class ApmJdbcEventListener extends SimpleJdbcEventListener {
 
     private boolean isNoop(Transaction transaction) {
         return transaction == null || !transaction.isSampled();
-    }
-
-    String getDbVendor(String url) {
-        // jdbc:h2:mem:test
-        //     ^
-        int indexOfJdbc = url.indexOf("jdbc:") + 5;
-        if (indexOfJdbc != -1) {
-            // h2:mem:test
-            String urlWithoutJdbc = url.substring(indexOfJdbc);
-            int indexOfColonAfterVendor = urlWithoutJdbc.indexOf(":");
-            if (indexOfColonAfterVendor != -1) {
-                // h2
-                return urlWithoutJdbc.substring(0, indexOfColonAfterVendor);
-            }
-        }
-        return "unknown";
     }
 
     @Override
