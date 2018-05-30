@@ -247,13 +247,11 @@ A list of instrumentations which should be disabled. Valid options are `jdbc`, `
 [[config-capture-body]]
 ==== `capture_body`
 
-For transactions that are HTTP requests, the Java agent can optionally capture the request body (e.g. POST variables).
+For transactions that are HTTP requests, the Java agent can optionally capture the request body. This currently means capturing application/x-www-form-urlencoded data, like information submitted via a HTML form.
 
 Possible values: errors, transactions, all, off.
 
 If the request has a body and this setting is disabled, the body will be shown as [REDACTED].
-
-For requests with a content type of multipart/form-data, any uploaded files will be referenced in a special _files key. It contains the name of the field, and the name of the uploaded file, if provided.
 
 WARNING: request bodies often contain sensitive values like passwords, credit card numbers etc.If your service handles data like this, we advise to only enable this feature with care.
 

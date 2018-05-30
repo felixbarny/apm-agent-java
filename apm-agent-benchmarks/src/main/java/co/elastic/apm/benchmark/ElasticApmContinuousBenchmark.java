@@ -79,8 +79,8 @@ import java.util.concurrent.TimeUnit;
  * Also note that this approach assumes that calling methods on {@link javax.servlet.http.HttpServletRequest},
  * like {@link HttpServletRequest#getHeaderNames()} or {@link HttpServletRequest#getCookies()}
  * does not allocate memory or would be called anyway by the application or framework
- * and the server implementationdoes not allocate memory when calling these methods twice.
- * But that assuption might not always be true and depends on the actual application server/servlet container in use.
+ * and the server implementation does not allocate memory when calling these methods twice.
+ * But that assumption might not always be true and depends on the actual application server/servlet container in use.
  * </p>
  * <p>
  * Reporting is done using the normal mechanism,

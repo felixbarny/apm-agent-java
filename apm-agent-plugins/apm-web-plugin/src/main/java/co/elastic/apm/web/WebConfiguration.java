@@ -35,15 +35,13 @@ public class WebConfiguration extends ConfigurationOptionProvider {
     private final ConfigurationOption<EventType> captureBody = ConfigurationOption.enumOption(EventType.class)
         .key("capture_body")
         .configurationCategory(HTTP_CATEGORY)
-        .description("For transactions that are HTTP requests, the Java agent can optionally capture the request body (e.g. POST " +
-            "variables).\n" +
+        .description("For transactions that are HTTP requests, the Java agent can optionally capture the request body. " +
+            "This currently means capturing application/x-www-form-urlencoded data, " +
+            "like information submitted via a HTML form.\n" +
             "\n" +
             "Possible values: errors, transactions, all, off.\n" +
             "\n" +
             "If the request has a body and this setting is disabled, the body will be shown as [REDACTED].\n" +
-            "\n" +
-            "For requests with a content type of multipart/form-data, any uploaded files will be referenced in a special _files key. It " +
-            "contains the name of the field, and the name of the uploaded file, if provided.\n" +
             "\n" +
             "WARNING: request bodies often contain sensitive values like passwords, credit card numbers etc." +
             "If your service handles data like this, we advise to only enable this feature with care.")
