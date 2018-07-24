@@ -26,8 +26,6 @@ import co.elastic.apm.impl.sampling.Sampler;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
@@ -50,10 +48,6 @@ public class Transaction extends AbstractSpan<Transaction> {
      */
     private final Context context = new Context();
     private final List<Span> spans = new ArrayList<Span>();
-    /**
-     * A mark captures the timing of a significant event during the lifetime of a transaction. Marks are organized into groups and can be set by the user or the agent.
-     */
-    private final Map<String, Object> marks = new ConcurrentHashMap<>();
     private final SpanCount spanCount = new SpanCount();
     /**
      * UUID for the transaction, referred by its spans
@@ -218,13 +212,6 @@ public class Transaction extends AbstractSpan<Transaction> {
         return this;
     }
 
-    /**
-     * A mark captures the timing of a significant event during the lifetime of a transaction. Marks are organized into groups and can be set by the user or the agent.
-     */
-    public Map<String, Object> getMarks() {
-        return marks;
-    }
-
     public SpanCount getSpanCount() {
         return spanCount;
     }
@@ -242,7 +229,6 @@ public class Transaction extends AbstractSpan<Transaction> {
         result = null;
         spans.clear();
         type = null;
-        marks.clear();
         spanCount.resetState();
         spanIdCounter.set(0);
         noop = false;
