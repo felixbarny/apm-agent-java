@@ -68,7 +68,7 @@ public class SpringRestTemplateInstrumentation extends ElasticApmInstrumentation
     private static void afterExecute(@Advice.Return ClientHttpResponse clientHttpResponse,
                                      @Advice.Local("span") @Nullable Span span,
                                      @Advice.Thrown @Nullable Throwable t) {
-        if (span != null) {
+        if (span != null && t != null) {
             span.captureException(t)
                 .deactivate()
                 .end();

@@ -1,1 +1,2 @@
 co.elastic.apm.resttemplate.SpringRestTemplateInstrumentation
+co.elastic.apm.resttemplate.ClientHttpResponseInstrumentation
