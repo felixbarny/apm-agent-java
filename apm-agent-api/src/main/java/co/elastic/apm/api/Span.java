@@ -19,7 +19,7 @@
  */
 package co.elastic.apm.api;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * A span contains information about a specific code path, executed as part of a {@link Transaction}.
@@ -121,19 +121,19 @@ public interface Span {
     void captureException(Throwable throwable);
 
     /**
-     * Returns the id of this span (never {@code null})
+     * Returns the id of this span
      * <p>
      * If this span represents a noop,
-     * this method returns an empty string.
+     * this method returns {@code null}.
      * </p>
      *
-     * @return the id of this span (never {@code null})
+     * @return the id of this span (can be {@code null})
      */
-    @Nonnull
+    @Nullable
     String getId();
 
     /**
-     * Returns the id of this trace (never {@code null})
+     * Returns the id of this trace
      * <p>
      * The trace-ID is consistent across all transactions and spans which belong to the same logical trace,
      * even for spans which happened in another service (given this service is also monitored by Elastic APM).
@@ -143,9 +143,9 @@ public interface Span {
      * this method returns an empty string.
      * </p>
      *
-     * @return the id of this span (never {@code null})
+     * @return the id of this span (can be {@code null})
      */
-    @Nonnull
+    @Nullable
     String getTraceId();
 
     /**

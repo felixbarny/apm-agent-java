@@ -19,7 +19,7 @@
  */
 package co.elastic.apm.api;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * A transaction is the data captured by an agent representing an event occurring in a monitored service
@@ -114,15 +114,15 @@ public interface Transaction extends Span {
     Span createSpan();
 
     /**
-     * Returns the id of this transaction (never {@code null})
+     * Returns the id of this transaction
      * <p>
      * If this transaction represents a noop,
-     * this method returns an empty string.
+     * this method returns {@code null}.
      * </p>
      *
-     * @return the id of this transaction (never {@code null})
+     * @return the id of this transaction (can be {@code null})
      */
-    @Nonnull
+    @Nullable
     String getId();
 
     /**
@@ -153,8 +153,8 @@ public interface Transaction extends Span {
      *   var elasticApm = initApm({
      *     serviceName: '',
      *     serverUrl: 'http://localhost:8200',
-     *     pageLoadTraceId: "${transaction.traceId}",
-     *     pageLoadSpanId: "${transaction.ensureParentId()}",
+     *     pageLoadTraceId: "${transaction.traceId!''}",
+     *     pageLoadSpanId: "${transaction.ensureParentId()!''}",
      *     pageLoadSampled: ${transaction.sampled}
      *   })
      * </script>
@@ -166,7 +166,7 @@ public interface Transaction extends Span {
      *
      * @return the parent-ID for this transaction. Updates the transaction to use a new parent-ID if it has previously been unset.
      */
-    @Nonnull
+    @Nullable
     String ensureParentId();
 
     /**

@@ -20,6 +20,7 @@
 package co.elastic.apm.api;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * If the agent is active, it injects the implementation from
@@ -75,18 +76,18 @@ class SpanImpl implements Span {
         // co.elastic.apm.plugin.api.SpanInstrumentation.CaptureExceptionInstrumentation
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String getId() {
         // co.elastic.apm.plugin.api.SpanInstrumentation.GetIdInstrumentation
-        return "";
+        return null;
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String getTraceId() {
         // co.elastic.apm.plugin.api.SpanInstrumentation.GetTraceIdInstrumentation
-        return "";
+        return null;
     }
 
     @Override

@@ -19,7 +19,7 @@
  */
 package co.elastic.apm.api;
 
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 enum NoopTransaction implements Transaction {
 
@@ -60,22 +60,22 @@ enum NoopTransaction implements Transaction {
         // co.elastic.apm.plugin.api.CaptureExceptionInstrumentation
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String getId() {
-        return "";
+        return null;
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String ensureParentId() {
-        return "";
+        return null;
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String getTraceId() {
-        return "";
+        return null;
     }
 
     @Override

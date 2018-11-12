@@ -20,6 +20,7 @@
 package co.elastic.apm.api;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * If the agent is active, it injects the implementation from
@@ -45,11 +46,11 @@ class TransactionImpl extends SpanImpl implements Transaction {
 
     }
 
-    @Nonnull
+    @Nullable
     @Override
     public String ensureParentId() {
         // co.elastic.apm.plugin.api.TransactionInstrumentation.EnsureParentIdInstrumentation
-        return "";
+        return null;
     }
 
 }
