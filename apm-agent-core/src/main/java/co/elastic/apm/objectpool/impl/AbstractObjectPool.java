@@ -22,15 +22,16 @@ package co.elastic.apm.objectpool.impl;
 import co.elastic.apm.objectpool.ObjectPool;
 import co.elastic.apm.objectpool.Allocator;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
 
 public abstract class AbstractObjectPool<T> implements ObjectPool<T> {
 
     protected final Allocator<T> allocator;
-    private final AtomicInteger garbageCreated = new AtomicInteger();
+    protected final Resetter<T> resetter;
 
-    protected AbstractObjectPool(Allocator<T> allocator) {
+    protected AbstractObjectPool(Allocator<T> allocator, Resetter<T> resetter) {
         this.allocator = allocator;
+        this.resetter = resetter;
     }
 
     @Override
@@ -38,7 +39,6 @@ public abstract class AbstractObjectPool<T> implements ObjectPool<T> {
         T recyclable = tryCreateInstance();
         if (recyclable == null) {
             // queue is empty, falling back to creating a new instance
-            garbageCreated.incrementAndGet();
             return allocator.createInstance();
         } else {
             return recyclable;
@@ -46,20 +46,27 @@ public abstract class AbstractObjectPool<T> implements ObjectPool<T> {
     }
 
     @Override
-    public void fillFromOtherPool(ObjectPool<T> otherPool, int maxElements) {
-        for (int i = 0; i < maxElements; i++) {
+    public void drainTo(ObjectPool<T> otherPool) {
+        for (int i = 0; i < otherPool.capacity(); i++) {
             T obj = tryCreateInstance();
             if (obj == null) {
                 return;
             }
-            otherPool.recycle(obj);
+            otherPool.offer(obj);
         }
     }
 
     @Override
-    public long getGarbageCreated() {
-        return garbageCreated.longValue();
+    public void recycle(List<T> toRecycle) {
+        for (T obj : toRecycle) {
+            recycle(obj);
+        }
     }
 
+    @Override
+    public void recycle(T obj) {
+        resetter.recycle(obj);
+        offer(obj);
+    }
 
 }

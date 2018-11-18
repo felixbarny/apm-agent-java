@@ -20,18 +20,17 @@
 package co.elastic.apm.objectpool.impl;
 
 import co.elastic.apm.objectpool.Allocator;
+import co.elastic.apm.objectpool.ObjectPool;
 import co.elastic.apm.objectpool.Recyclable;
-import com.lmax.disruptor.EventFactory;
+import org.jctools.queues.MessagePassingQueue;
 
 import javax.annotation.Nullable;
-import java.util.Collection;
 import java.util.Iterator;
-import java.util.Queue;
+import java.util.List;
 
-public class QueueBasedObjectPool<T> extends AbstractObjectPool<T> implements Collection<T> {
+public class QueueBasedObjectPool<T> extends AbstractObjectPool<T> {
 
-    private final Queue<T> queue;
-    private final Resetter<T> resetter;
+    private final MessagePassingQueue<T> queue;
 
     /**
      * @param queue                   the underlying queue
@@ -40,18 +39,17 @@ public class QueueBasedObjectPool<T> extends AbstractObjectPool<T> implements Co
      * @param allocator a factory method which is used to create new instances of the recyclable object. This factory is
      *                                used when there are no objects in the queue and to preallocate the queue.
      */
-    public static <T extends Recyclable> QueueBasedObjectPool<T> ofRecyclable(Queue<T> queue, boolean preAllocate, Allocator<T> allocator) {
+    public static <T extends Recyclable> QueueBasedObjectPool<T> ofRecyclable(MessagePassingQueue<T> queue, boolean preAllocate, Allocator<T> allocator) {
         return new QueueBasedObjectPool<>(queue, preAllocate, allocator, Resetter.ForRecyclable.<T>get());
     }
 
-    public static <T> QueueBasedObjectPool<T> of(Queue<T> queue, boolean preAllocate, Allocator<T> allocator, Resetter<T> resetter) {
+    public static <T> QueueBasedObjectPool<T> of(MessagePassingQueue<T> queue, boolean preAllocate, Allocator<T> allocator, Resetter<T> resetter) {
         return new QueueBasedObjectPool<>(queue, preAllocate, allocator, resetter);
     }
 
-    private QueueBasedObjectPool(Queue<T> queue, boolean preAllocate, Allocator<T> allocator, Resetter<T> resetter) {
-        super(allocator);
+    private QueueBasedObjectPool(MessagePassingQueue<T> queue, boolean preAllocate, Allocator<T> allocator, Resetter<T> resetter) {
+        super(allocator, resetter);
         this.queue = queue;
-        this.resetter = resetter;
         if (preAllocate) {
             for (int i = 0; i < this.queue.size(); i++) {
                 this.queue.offer(allocator.createInstance());
@@ -66,24 +64,29 @@ public class QueueBasedObjectPool<T> extends AbstractObjectPool<T> implements Co
     }
 
     @Override
-    public void recycle(T obj) {
-        resetter.recycle(obj);
-        queue.offer(obj);
+    public boolean offer(T obj) {
+        return queue.offer(obj);
     }
 
     @Override
-    public int getObjectsInPool() {
-        // as the size of the ring buffer is an int, this can never overflow
-        return queue.size();
+    public void drainTo(final ObjectPool<T> otherPool) {
+        queue.drain(new MessagePassingQueue.Consumer<T>() {
+            @Override
+            public void accept(T e) {
+                otherPool.offer(e);
+            }
+        }, otherPool.capacity());
     }
 
     @Override
-    public void close() {
-    }
-
-    @Override
-    public int getSize() {
-        return queue.size();
+    public void recycle(List<T> toRecycle) {
+        final Iterator<T> iterator = toRecycle.iterator();
+        queue.fill(new MessagePassingQueue.Supplier<T>() {
+            @Override
+            public T get() {
+                return iterator.next();
+            }
+        }, toRecycle.size());
     }
 
     @Override
@@ -92,78 +95,8 @@ public class QueueBasedObjectPool<T> extends AbstractObjectPool<T> implements Co
     }
 
     @Override
-    public boolean isEmpty() {
-        return queue.isEmpty();
+    public int capacity() {
+        return queue.capacity();
     }
 
-    @Override
-    public boolean contains(Object o) {
-        return queue.contains(o);
-    }
-
-    @Override
-    public Iterator<T> iterator() {
-        return queue.iterator();
-    }
-
-    @Override
-    public Object[] toArray() {
-        return queue.toArray();
-    }
-
-    @Override
-    public <T1> T1[] toArray(T1[] a) {
-        return queue.toArray(a);
-    }
-
-    @Override
-    public boolean add(T t) {
-        return queue.add(t);
-    }
-
-    @Override
-    public boolean remove(Object o) {
-        return queue.remove(o);
-    }
-
-    @Override
-    public boolean containsAll(Collection<?> c) {
-        return queue.containsAll(c);
-    }
-
-    @Override
-    public boolean addAll(Collection<? extends T> c) {
-        return queue.addAll(c);
-    }
-
-    @Override
-    public boolean removeAll(Collection<?> c) {
-        return queue.removeAll(c);
-    }
-
-    @Override
-    public boolean retainAll(Collection<?> c) {
-        return queue.retainAll(c);
-    }
-
-    @Override
-    public void clear() {
-        queue.clear();
-    }
-
-    private static class PooledObjectHolder<T> {
-        @Nullable
-        T value;
-
-        public void set(T value) {
-            this.value = value;
-        }
-    }
-
-    private static class PooledObjectEventFactory<T> implements EventFactory<PooledObjectHolder<T>> {
-        @Override
-        public PooledObjectHolder<T> newInstance() {
-            return new PooledObjectHolder<>();
-        }
-    }
 }

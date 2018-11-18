@@ -19,21 +19,29 @@
  */
 package co.elastic.apm.objectpool.impl;
 
-import co.elastic.apm.objectpool.Recyclable;
 import co.elastic.apm.objectpool.Allocator;
+import co.elastic.apm.objectpool.Recyclable;
 
 import javax.annotation.Nullable;
 
-public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectPool<T> {
+public class ThreadLocalObjectPool<T> extends AbstractObjectPool<T> {
 
     private final ThreadLocal<FixedSizeStack<T>> objectPool = new ThreadLocal<>();
     private final int maxNumPooledObjectsPerThread;
     private final boolean preAllocate;
 
-    public ThreadLocalObjectPool(final int maxNumPooledObjectsPerThread, final boolean preAllocate, final Allocator<T> allocator) {
-        super(allocator);
+    private ThreadLocalObjectPool(final int maxNumPooledObjectsPerThread, final boolean preAllocate, final Allocator<T> allocator, final Resetter<T> resetter) {
+        super(allocator, resetter);
         this.maxNumPooledObjectsPerThread = maxNumPooledObjectsPerThread;
         this.preAllocate = preAllocate;
+    }
+
+    public static <T extends Recyclable> ThreadLocalObjectPool<T> ofRecyclable(final int maxNumPooledObjectsPerThread, final boolean preAllocate, final Allocator<T> allocator) {
+        return new ThreadLocalObjectPool<>(maxNumPooledObjectsPerThread, preAllocate, allocator, Resetter.ForRecyclable.<T>get());
+    }
+
+    public static <T> ThreadLocalObjectPool<T> of(final int maxNumPooledObjectsPerThread, final boolean preAllocate, final Allocator<T> allocator, final Resetter<T> resetter) {
+        return new ThreadLocalObjectPool<>(maxNumPooledObjectsPerThread, preAllocate, allocator, resetter);
     }
 
     @Override
@@ -43,25 +51,17 @@ public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectP
     }
 
     @Override
-    public void recycle(T obj) {
-        obj.resetState();
-        getStack().push(obj);
+    public boolean offer(T obj) {
+        return getStack().push(obj);
     }
 
     @Override
-    public int getObjectsInPool() {
+    public int size() {
         return getStack().size();
     }
 
     @Override
-    public void close() {
-        // only removes the entry of the current thread
-        // this could lead to class loader leaks
-        objectPool.remove();
-    }
-
-    @Override
-    public int getSize() {
+    public int capacity() {
         return maxNumPooledObjectsPerThread;
     }
 

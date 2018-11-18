@@ -34,6 +34,7 @@ import co.elastic.apm.objectpool.Allocator;
 import co.elastic.apm.objectpool.impl.QueueBasedObjectPool;
 import co.elastic.apm.report.Reporter;
 import co.elastic.apm.report.ReporterConfiguration;
+import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.atomic.AtomicQueueFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,14 +86,14 @@ public class ElasticApmTracer {
         this.spanListeners = spanListeners;
         int maxPooledElements = configurationRegistry.getConfig(ReporterConfiguration.class).getMaxQueueSize() * 2;
         coreConfiguration = configurationRegistry.getConfig(CoreConfiguration.class);
-        transactionPool = QueueBasedObjectPool.ofRecyclable(AtomicQueueFactory.<Transaction>newQueue(createBoundedMpmc(maxPooledElements)), false,
+        transactionPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<Transaction>(maxPooledElements), false,
             new Allocator<Transaction>() {
                 @Override
                 public Transaction createInstance() {
                     return new Transaction(ElasticApmTracer.this);
                 }
             });
-        spanPool = QueueBasedObjectPool.ofRecyclable(AtomicQueueFactory.<Span>newQueue(createBoundedMpmc(maxPooledElements)), false,
+        spanPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<Span>(maxPooledElements), false,
             new Allocator<Span>() {
                 @Override
                 public Span createInstance() {
@@ -100,7 +101,7 @@ public class ElasticApmTracer {
                 }
             });
         // we are assuming that we don't need as many errors as spans or transactions
-        errorPool = QueueBasedObjectPool.ofRecyclable(AtomicQueueFactory.<ErrorCapture>newQueue(createBoundedMpmc(maxPooledElements / 2)), false,
+        errorPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<ErrorCapture>(maxPooledElements / 2), false,
             new Allocator<ErrorCapture>() {
                 @Override
                 public ErrorCapture createInstance() {
@@ -304,9 +305,6 @@ public class ElasticApmTracer {
         try {
             configurationRegistry.close();
             reporter.close();
-            transactionPool.close();
-            spanPool.close();
-            errorPool.close();
             for (LifecycleListener lifecycleListener : lifecycleListeners) {
                 lifecycleListener.stop();
             }

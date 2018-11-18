@@ -26,7 +26,6 @@ import co.elastic.apm.impl.transaction.Transaction;
 import co.elastic.apm.objectpool.impl.MixedObjectPool;
 import co.elastic.apm.objectpool.impl.QueueBasedObjectPool;
 import co.elastic.apm.objectpool.impl.ThreadLocalObjectPool;
-import org.agrona.concurrent.ManyToManyConcurrentArrayQueue;
 import org.jctools.queues.MpmcArrayQueue;
 import org.jctools.queues.atomic.MpmcAtomicArrayQueue;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -34,11 +33,9 @@ import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
 import org.openjdk.jmh.annotations.Setup;
-import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.runner.RunnerException;
 
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 @BenchmarkMode(Mode.SampleTime)
@@ -46,8 +43,6 @@ import java.util.concurrent.TimeUnit;
 public class ObjectPoolBenchmark extends AbstractBenchmark {
 
     private ElasticApmTracer tracer;
-    private QueueBasedObjectPool<Transaction> blockingQueueObjectPool;
-    private QueueBasedObjectPool<Transaction> agronaQueueObjectPool;
     private MixedObjectPool<Transaction> mixedObjectPool;
     private ThreadLocalObjectPool<Transaction> threadLocalObjectPool;
     private QueueBasedObjectPool<Transaction> jctoolsQueueObjectPool;
@@ -60,62 +55,36 @@ public class ObjectPoolBenchmark extends AbstractBenchmark {
     @Setup
     public void setUp() {
         tracer = new ElasticApmTracerBuilder().build();
-        blockingQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new ArrayBlockingQueue<>(256), true, () -> new Transaction(tracer));
-        jctoolsQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<>(256), true, () -> new Transaction(tracer));
+        jctoolsQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<>(512), true, () -> new Transaction(tracer));
         jctoolsAtomicQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new MpmcAtomicArrayQueue<>(256), true, () -> new Transaction(tracer));
-        agronaQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new ManyToManyConcurrentArrayQueue<>(256), true, () -> new Transaction(tracer));
-        mixedObjectPool = new MixedObjectPool<>(() -> new Transaction(tracer),
-            new ThreadLocalObjectPool<>(256, true, () -> new Transaction(tracer)),
-            QueueBasedObjectPool.ofRecyclable(new ManyToManyConcurrentArrayQueue<>(256), true, () -> new Transaction(tracer)));
-        threadLocalObjectPool = new ThreadLocalObjectPool<>(64, true, () -> new Transaction(tracer));
+        mixedObjectPool = MixedObjectPool.withThreadLocalBuffer(32, 512, () -> new Transaction(tracer));
+        threadLocalObjectPool = ThreadLocalObjectPool.ofRecyclable(64, true, () -> new Transaction(tracer));
     }
 
-    @TearDown
-    public void tearDown() {
-        System.out.println("Objects created by agronaQueueObjectPool: " + agronaQueueObjectPool.getGarbageCreated());
-        System.out.println("Objects created by MixedObjectPool: " + mixedObjectPool.getGarbageCreated());
-    }
-
-    //    @Benchmark
-    @Threads(8)
+//        @Benchmark
+    @Threads(16)
     public Transaction testNewOperator() {
         return new Transaction(tracer);
     }
 
     @Benchmark
-    @Threads(8)
+    @Threads(16)
     public Transaction testJctoolsAtomicQueueObjectPool() {
         Transaction transaction = jctoolsAtomicQueueObjectPool.createInstance();
         jctoolsAtomicQueueObjectPool.recycle(transaction);
         return transaction;
     }
 
-    //    @Benchmark
-    @Threads(8)
-    public Transaction testArgonaQueueObjectPool() {
-        Transaction transaction = agronaQueueObjectPool.createInstance();
-        agronaQueueObjectPool.recycle(transaction);
-        return transaction;
-    }
-
-    @Benchmark
-    @Threads(8)
+//    @Benchmark
+    @Threads(16)
     public Transaction testJctoolsQueueObjectPool() {
         Transaction transaction = jctoolsQueueObjectPool.createInstance();
         jctoolsQueueObjectPool.recycle(transaction);
         return transaction;
     }
 
-    //@Benchmark
-    @Threads(8)
-    public Transaction testBlockingQueueObjectPool() {
-        Transaction transaction = blockingQueueObjectPool.createInstance();
-        blockingQueueObjectPool.recycle(transaction);
-        return transaction;
-    }
-
-    //    @Benchmark
-    @Threads(8)
+    @Benchmark
+    @Threads(16)
     public Transaction testMixedObjectPool() {
         Transaction transaction = mixedObjectPool.createInstance();
         mixedObjectPool.recycle(transaction);

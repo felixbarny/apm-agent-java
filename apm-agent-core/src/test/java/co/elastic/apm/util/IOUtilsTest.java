@@ -21,6 +21,7 @@ package co.elastic.apm.util;
 
 import co.elastic.apm.objectpool.impl.QueueBasedObjectPool;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.jctools.queues.SpscArrayQueue;
 import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nonnull;
@@ -53,7 +54,7 @@ class IOUtilsTest  {
 
     @Test
     void testReusedBuffer() throws IOException {
-        final QueueBasedObjectPool<CharBuffer> charBuffers = QueueBasedObjectPool.of(new ArrayBlockingQueue<>(1), true,
+        final QueueBasedObjectPool<CharBuffer> charBuffers = QueueBasedObjectPool.of(new SpscArrayQueue<>(1), true,
             () -> CharBuffer.allocate(8), CharBuffer::clear);
 
         final CharBuffer charBuffer1 = charBuffers.createInstance();

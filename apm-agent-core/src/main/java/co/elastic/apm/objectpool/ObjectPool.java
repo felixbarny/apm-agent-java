@@ -20,21 +20,24 @@
 package co.elastic.apm.objectpool;
 
 import javax.annotation.Nullable;
-import java.io.Closeable;
+import java.util.List;
 
-public interface ObjectPool<T> extends Closeable {
+public interface ObjectPool<T> {
     @Nullable
     T tryCreateInstance();
 
     T createInstance();
 
-    void fillFromOtherPool(ObjectPool<T> otherPool, int maxElements);
+    void drainTo(ObjectPool<T> otherPool);
+
+    void recycle(List<T> toRecycle);
 
     void recycle(T obj);
 
-    int getSize();
+    boolean offer(T obj);
 
-    int getObjectsInPool();
+    int capacity();
 
-    long getGarbageCreated();
+    int size();
+
 }
