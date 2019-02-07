@@ -74,7 +74,6 @@ import static org.mockserver.model.HttpRequest.request;
  */
 public abstract class AbstractServletContainerIntegrationTest {
     static boolean ENABLE_DEBUGGING = false;
-    static final String pathToWar = "../simple-webapp/target/ROOT.war";
     static final String pathToJavaagent;
     private static final Logger logger = LoggerFactory.getLogger(AbstractServletContainerIntegrationTest.class);
     static MockServerContainer mockServerContainer = new MockServerContainer()
@@ -96,38 +95,41 @@ public abstract class AbstractServletContainerIntegrationTest {
             .readTimeout(ENABLE_DEBUGGING ? 0 : 10, TimeUnit.SECONDS)
             .build();
         pathToJavaagent = getPathToJavaagent();
-        checkFilePresent(pathToWar);
         checkFilePresent(pathToJavaagent);
     }
 
     private final MockReporter mockReporter = new MockReporter();
     private final GenericContainer servletContainer;
     private final int webPort;
-    private final String contextPath;
     @Nullable
     private GenericContainer<?> debugProxy;
     private final String expectedDefaultServiceName;
 
-    protected AbstractServletContainerIntegrationTest(GenericContainer<?> servletContainer, String expectedDefaultServiceName, String deploymentPath) {
-        this(servletContainer, 8080, "", expectedDefaultServiceName, deploymentPath);
+    protected AbstractServletContainerIntegrationTest(GenericContainer<?> servletContainer, String expectedDefaultServiceName, String deploymentPath, String containerName) {
+        this(servletContainer, 8080, expectedDefaultServiceName, deploymentPath, containerName);
     }
 
-    protected AbstractServletContainerIntegrationTest(GenericContainer<?> servletContainer, int webPort, String contextPath,
-                                                      String expectedDefaultServiceName, String deploymentPath) {
+    protected AbstractServletContainerIntegrationTest(GenericContainer<?> servletContainer, int webPort,
+                                                      String expectedDefaultServiceName, String deploymentPath, String containerName) {
         this.servletContainer = servletContainer;
         this.webPort = webPort;
-        this.contextPath = contextPath;
         if (ENABLE_DEBUGGING) {
             enableDebugging(servletContainer);
             this.debugProxy = createDebugProxy(servletContainer, 5005);
         }
         this.expectedDefaultServiceName = expectedDefaultServiceName;
+        servletContainer.withEnv("ELASTIC_APM_SERVER_URL", "http://apm-server:1080")
+            .withEnv("ELASTIC_APM_IGNORE_URLS", "/status*,/favicon.ico")
+            .withEnv("ELASTIC_APM_REPORT_SYNC", "true")
+            .withEnv("ELASTIC_APM_LOGGING_LOG_LEVEL", "DEBUG")
+            .withLogConsumer(new StandardOutLogConsumer().withPrefix(containerName))
+            .withExposedPorts(webPort)
+            .withFileSystemBind(pathToJavaagent, "/elastic-apm-agent.jar");
         for (TestApp testApp: getTestApps()) {
             String pathToAppFile = testApp.getAppFilePath();
             checkFilePresent(pathToAppFile);
-            servletContainer.withFileSystemBind(pathToAppFile, deploymentPath + "/" + testApp.appFileName);
+            servletContainer.withFileSystemBind(pathToAppFile, deploymentPath + "/" + testApp.getAppFileName());
         }
-        waitFor(contextPath + "/status.jsp");
         this.servletContainer.start();
     }
 
@@ -183,6 +185,18 @@ public abstract class AbstractServletContainerIntegrationTest {
     }
 
     protected Iterable<TestApp> getTestApps() {
+        List<TestApp> testApps = new ArrayList<>();
+        for (Class<? extends TestApp> testClass : getTestClasses()) {
+            try {
+                testApps.add(testClass.getConstructor().newInstance());
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return testApps;
+    }
+
+    protected Iterable<Class<? extends TestApp>> getTestClasses() {
         return Collections.emptyList();
     }
 
@@ -192,90 +206,13 @@ public abstract class AbstractServletContainerIntegrationTest {
      */
     @Test
     public void testAllScenarios() throws Exception {
-        testTransactionReporting();
-        testTransactionErrorReporting();
-        testSpanErrorReporting();
-        testExecutorService();
-        testHttpUrlConnection();
         for (TestApp testApp : getTestApps()) {
-            waitFor(testApp.statusEndpoint);
+            waitFor(testApp.getStatusEndpoint());
             mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-            testApp.testMethod.accept(this);
+            testApp.test(this);
         }
     }
 
-    private void testExecutorService() throws Exception {
-        mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-        final String pathToTest = contextPath + "/executor-service-servlet";
-        executeAndValidateRequest(pathToTest, null, 200);
-        String transactionId = assertTransactionReported(pathToTest, 200).get("id").textValue();
-        final List<JsonNode> spans = assertSpansTransactionId(500, this::getReportedSpans, transactionId);
-        assertThat(spans).hasSize(1);
-    }
-
-    private void testHttpUrlConnection() throws IOException, InterruptedException {
-        mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-        final String pathToTest = contextPath + "/http-url-connection";
-        executeAndValidateRequest(pathToTest, "Hello World!", 200);
-
-        final List<JsonNode> reportedTransactions = getAllReported(500, this::getReportedTransactions, 2);
-        final JsonNode innerTransaction = reportedTransactions.get(0);
-        final JsonNode outerTransaction = reportedTransactions.get(1);
-
-        final List<JsonNode> spans = assertSpansTransactionId(500, this::getReportedSpans, outerTransaction.get("id").textValue());
-        assertThat(spans).hasSize(1);
-        final JsonNode span = spans.get(0);
-
-        assertThat(innerTransaction.get("trace_id").textValue()).isEqualTo(outerTransaction.get("trace_id").textValue());
-        assertThat(innerTransaction.get("trace_id").textValue()).isEqualTo(span.get("trace_id").textValue());
-        assertThat(innerTransaction.get("parent_id").textValue()).isEqualTo(span.get("id").textValue());
-        assertThat(span.get("parent_id").textValue()).isEqualTo(outerTransaction.get("id").textValue());
-        assertThat(span.get("context").get("http").get("url").textValue()).endsWith("hello-world.jsp");
-        assertThat(span.get("context").get("http").get("status_code").intValue()).isEqualTo(200);
-    }
-
-    private void testTransactionReporting() throws Exception {
-        for (String pathToTest : getPathsToTest()) {
-            pathToTest = contextPath + pathToTest;
-            mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-            executeAndValidateRequest(pathToTest, "Hello World", 200);
-            JsonNode transaction = assertTransactionReported(pathToTest, 200);
-            String transactionId = transaction.get("id").textValue();
-            List<JsonNode> spans = assertSpansTransactionId(500, this::getReportedSpans, transactionId);
-            for (JsonNode span : spans) {
-                assertThat(span.get("type").textValue()).isEqualTo("db.h2.query");
-            }
-            validateMetadata();
-        }
-    }
-
-    private void testSpanErrorReporting() throws Exception {
-        for (String pathToTest : getPathsToTest()) {
-            pathToTest = contextPath + pathToTest;
-            mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-            executeAndValidateRequest(pathToTest + "?cause_db_error=true", "DB Error", 200);
-            JsonNode transaction = assertTransactionReported(pathToTest, 200);
-            String transactionId = transaction.get("id").textValue();
-            assertSpansTransactionId(500, this::getReportedSpans, transactionId);
-            assertErrorContent(500, this::getReportedErrors, transactionId, "Column \"NON_EXISTING_COLUMN\" not found");
-        }
-    }
-
-    private void testTransactionErrorReporting() throws Exception {
-        for (String pathToTest : getPathsToTestErrors()) {
-            String fullPathToTest = contextPath + pathToTest;
-            mockServerContainer.getClient().clear(HttpRequest.request(), ClearType.LOG);
-            // JBoss EAP 6.4 returns a 200 in case of an error in async dispatch 🤷‍♂️
-            executeAndValidateRequest(fullPathToTest + "?cause_transaction_error=true", "", null);
-            JsonNode transaction = assertTransactionReported(fullPathToTest, 500);
-            String transactionId = transaction.get("id").textValue();
-            assertSpansTransactionId(500, this::getReportedSpans, transactionId);
-            // we currently only report errors when Exceptions are caught, still this test is relevant for response code capturing
-            if (isExpectedStacktrace(pathToTest)) {
-                assertErrorContent(500, this::getReportedErrors, transactionId, "Transaction failure");
-            }
-        }
-    }
 
     JsonNode assertTransactionReported(String pathToTest, int expectedResponseCode) {
         final List<JsonNode> reportedTransactions = getAllReported(500, this::getReportedTransactions, 1);
@@ -306,7 +243,7 @@ public abstract class AbstractServletContainerIntegrationTest {
     }
 
     @Nonnull
-    private List<JsonNode> getAllReported(int timeoutMs, Supplier<List<JsonNode>> supplier, int expected) {
+    List<JsonNode> getAllReported(int timeoutMs, Supplier<List<JsonNode>> supplier, int expected) {
         long start = System.currentTimeMillis();
         List<JsonNode> reportedTransactions;
         do {
@@ -331,7 +268,7 @@ public abstract class AbstractServletContainerIntegrationTest {
     }
 
     @Nonnull
-    private List<JsonNode>  assertErrorContent(int timeoutMs, Supplier<List<JsonNode>> supplier, String transactionId, String errorMessage) {
+    List<JsonNode>  assertErrorContent(int timeoutMs, Supplier<List<JsonNode>> supplier, String transactionId, String errorMessage) {
         long start = System.currentTimeMillis();
         List<JsonNode> reportedErrors;
         do {
@@ -380,7 +317,7 @@ public abstract class AbstractServletContainerIntegrationTest {
         return "http://" + servletContainer.getContainerIpAddress() + ":" + servletContainer.getMappedPort(webPort);
     }
 
-    private List<JsonNode> getReportedTransactions() {
+    List<JsonNode> getReportedTransactions() {
         final List<JsonNode> transactions = getEvents("transaction");
         transactions.forEach(mockReporter::verifyTransactionSchema);
         return transactions;
@@ -392,7 +329,7 @@ public abstract class AbstractServletContainerIntegrationTest {
         return transactions;
     }
 
-    private List<JsonNode> getReportedErrors() {
+    List<JsonNode> getReportedErrors() {
         final List<JsonNode> transactions = getEvents("error");
         transactions.forEach(mockReporter::verifyErrorSchema);
         return transactions;
@@ -416,7 +353,7 @@ public abstract class AbstractServletContainerIntegrationTest {
         }
     }
 
-    private void validateMetadata() {
+    void validateMetadata() {
         try {
             final ObjectMapper objectMapper = new ObjectMapper();
             final JsonNode payload;

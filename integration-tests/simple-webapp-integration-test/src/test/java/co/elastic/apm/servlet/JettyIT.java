@@ -26,7 +26,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 @RunWith(Parameterized.class)
@@ -43,11 +42,10 @@ public class JettyIT extends AbstractServletContainerIntegrationTest {
             .withEnv("ELASTIC_APM_REPORT_SYNC", "true")
             .withEnv("ELASTIC_APM_LOGGING_LOG_LEVEL", "DEBUG")
             .withLogConsumer(new StandardOutLogConsumer().withPrefix("jetty"))
-            .withFileSystemBind(pathToWar, "/var/lib/jetty/webapps/ROOT.war")
-            .withFileSystemBind(pathToJavaagent, "/elastic-apm-agent.jar")
-            .withExposedPorts(8080, 9990),
+            .withExposedPorts(8080),
             "jetty-application",
-            "/var/lib/jetty/webapps");
+            "/var/lib/jetty/webapps",
+            "jetty");
 
         this.version = version;
     }
@@ -74,7 +72,7 @@ public class JettyIT extends AbstractServletContainerIntegrationTest {
     }
 
     @Override
-    protected Iterable<TestApp> getTestApps() {
-        return Collections.singletonList(TestApp.JSF_STANDALONE);
+    protected Iterable<Class<? extends TestApp>> getTestClasses() {
+        return Arrays.asList(ServletApiTestApp.class, JsfServletContainerTestApp.class);
     }
 }

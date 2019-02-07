@@ -34,17 +34,10 @@ public class WildFlyIT extends AbstractServletContainerIntegrationTest {
             .withNetwork(Network.SHARED)
             // this overrides the defaults, so we have to manually re-add preferIPv4Stack
             // the other defaults don't seem to be important
-            .withEnv("JAVA_OPTS", "-javaagent:/elastic-apm-agent.jar -Djava.net.preferIPv4Stack=true")
-            .withEnv("ELASTIC_APM_SERVER_URL", "http://apm-server:1080")
-            .withEnv("ELASTIC_APM_IGNORE_URLS", "/status*,/favicon.ico")
-            .withEnv("ELASTIC_APM_REPORT_SYNC", "true")
-            .withEnv("ELASTIC_APM_LOGGING_LOG_LEVEL", "DEBUG")
-            .withLogConsumer(new StandardOutLogConsumer().withPrefix("wildfly"))
-            .withFileSystemBind(pathToWar, "/opt/jboss/wildfly/standalone/deployments/ROOT.war")
-            .withFileSystemBind(pathToJavaagent, "/elastic-apm-agent.jar")
-            .withExposedPorts(8080, 9990),
+            .withEnv("JAVA_OPTS", "-javaagent:/elastic-apm-agent.jar -Djava.net.preferIPv4Stack=true"),
             "jboss-application",
-            "/opt/jboss/wildfly/standalone/deployments");
+            "/opt/jboss/wildfly/standalone/deployments",
+            "wildfly");
     }
 
     @Override
@@ -67,7 +60,7 @@ public class WildFlyIT extends AbstractServletContainerIntegrationTest {
     }
 
     @Override
-    protected Iterable<TestApp> getTestApps() {
-        return Arrays.asList(TestApp.JSF, TestApp.SOAP);
+    protected Iterable<Class<? extends TestApp>> getTestClasses() {
+        return Arrays.asList(ServletApiTestApp.class, JsfApplicationServerTestApp.class, SoapTestApp.class);
     }
 }
