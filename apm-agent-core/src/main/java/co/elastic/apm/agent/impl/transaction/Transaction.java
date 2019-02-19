@@ -154,7 +154,7 @@ public class Transaction extends AbstractSpan<Transaction> {
     }
 
     @Override
-    public void doEnd(long epochMicros) {
+    public void doEnd() {
         if (!isSampled()) {
             context.resetState();
         }

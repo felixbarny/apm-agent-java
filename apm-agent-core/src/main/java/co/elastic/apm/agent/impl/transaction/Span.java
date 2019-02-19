@@ -58,6 +58,8 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     private final SpanContext context = new SpanContext();
     @Nullable
     private Throwable stacktrace;
+    @Nullable
+    private AbstractSpan<?> parent;
 
     public Span(ElasticApmTracer tracer) {
         super(tracer);
@@ -75,6 +77,9 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     public <T> Span start(TraceContext.ChildContextCreator<T> childContextCreator, T parentContext, long epochMicros, boolean dropped) {
         onStart();
         childContextCreator.asChildOf(traceContext, parentContext);
+        if (parentContext instanceof AbstractSpan) {
+            this.parent = (AbstractSpan<?>) parentContext;
+        }
         if (dropped) {
             traceContext.setRecorded(false);
         }
@@ -177,7 +182,7 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     }
 
     @Override
-    public void doEnd(long epochMicros) {
+    public void doEnd() {
         if (logger.isDebugEnabled()) {
             logger.debug("} endSpan {}", this);
             if (logger.isTraceEnabled()) {
@@ -186,6 +191,9 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
         }
         if (type == null) {
             type = "custom";
+        }
+        if (parent != null) {
+            parent.onChildEnd(this);
         }
         this.tracer.endSpan(this);
     }

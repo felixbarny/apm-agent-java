@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextHolder<T> {
     private static final Logger logger = LoggerFactory.getLogger(AbstractSpan.class);
@@ -35,11 +36,10 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
      */
     protected final StringBuilder name = new StringBuilder();
     protected long timestamp;
-    /**
-     * How long the transaction took to complete, in ms with 3 decimal points
-     * (Required)
-     */
-    protected double duration;
+
+    // in microseconds
+    protected long duration;
+    private AtomicLong childDurations = new AtomicLong();
 
     private volatile boolean finished = true;
 
@@ -52,8 +52,16 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
      * How long the transaction took to complete, in ms with 3 decimal points
      * (Required)
      */
-    public double getDuration() {
+    public long getDuration() {
         return duration;
+    }
+
+    public long getSelfDuration() {
+        return duration - childDurations.get();
+    }
+
+    public double getDurationMs() {
+        return duration / AbstractSpan.MS_IN_MICROS;
     }
 
     /**
@@ -108,7 +116,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         timestamp = 0;
         duration = 0;
         traceContext.resetState();
-        // don't reset previouslyActive, as deactivate can be called after end
+        childDurations.set(0);
     }
 
     public boolean isChildOf(AbstractSpan<?> parent) {
@@ -137,18 +145,18 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     public final void end(long epochMicros) {
         if (!finished) {
             this.finished = true;
-            this.duration = (epochMicros - timestamp) / AbstractSpan.MS_IN_MICROS;
+            this.duration = (epochMicros - timestamp);
             if (name.length() == 0) {
                 name.append("unnamed");
             }
-            doEnd(epochMicros);
+            doEnd();
         } else {
             logger.warn("End has already been called: {}", this);
             assert false;
         }
     }
 
-    protected abstract void doEnd(long epochMicros);
+    protected abstract void doEnd();
 
     @Override
     public boolean isChildOf(TraceContextHolder other) {
@@ -167,4 +175,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         return tracer.wrapRunnable(runnable, this);
     }
 
+    void onChildEnd(Span span) {
+        childDurations.addAndGet(span.duration);
+    }
 }
