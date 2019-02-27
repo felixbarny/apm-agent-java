@@ -22,8 +22,12 @@ package co.elastic.apm.agent.impl.transaction;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.context.TransactionContext;
 import co.elastic.apm.agent.impl.sampling.Sampler;
+import co.elastic.apm.agent.metrics.Timer;
 
 import javax.annotation.Nullable;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Data captured by an agent representing an event occurring in a monitored service
@@ -39,6 +43,7 @@ public class Transaction extends AbstractSpan<Transaction> {
      */
     private final TransactionContext context = new TransactionContext();
     private final SpanCount spanCount = new SpanCount();
+    private final ConcurrentMap<String, Timer> spanTimings = new ConcurrentHashMap<>();
 
     /**
      * The result of the transaction. HTTP status code for HTTP-related transactions.
@@ -60,6 +65,25 @@ public class Transaction extends AbstractSpan<Transaction> {
 
     public Transaction(ElasticApmTracer tracer) {
         super(tracer);
+    }
+
+    public void onSpanEnd(Span span) {
+        final String type = span.getType();
+        if (type != null) {
+            incrementTimer(type, span.getSelfDuration());
+        }
+    }
+
+    private void incrementTimer(String type, long duration) {
+        Timer timer = spanTimings.get(type);
+        if (timer == null) {
+            timer = new Timer();
+            Timer racyTimer = spanTimings.putIfAbsent(type, timer);
+            if (racyTimer != null) {
+                timer = racyTimer;
+            }
+        }
+        timer.increment(duration);
     }
 
     public <T> Transaction start(TraceContext.ChildContextCreator<T> childContextCreator, @Nullable T parent, long epochMicros, Sampler sampler) {
@@ -155,6 +179,7 @@ public class Transaction extends AbstractSpan<Transaction> {
 
     @Override
     public void doEnd() {
+        incrementTimer("other", getSelfDuration());
         if (!isSampled()) {
             context.resetState();
         }
@@ -168,6 +193,10 @@ public class Transaction extends AbstractSpan<Transaction> {
         return spanCount;
     }
 
+    public ConcurrentMap<String, Timer> getSpanTimings() {
+        return spanTimings;
+    }
+
     @Override
     public void resetState() {
         super.resetState();
@@ -176,6 +205,9 @@ public class Transaction extends AbstractSpan<Transaction> {
         spanCount.resetState();
         noop = false;
         type = null;
+        for (Map.Entry<String, Timer> entry : spanTimings.entrySet()) {
+            entry.getValue().resetState();
+        }
     }
 
     public void recycle() {

@@ -308,6 +308,7 @@ public class ElasticApmTracer {
                     new RuntimeException("this exception is just used to record where the transaction has been ended from"));
             }
         }
+        trackMetrics(transaction);
         if (!transaction.isNoop()) {
             // we do report non-sampled transactions (without the context)
             reporter.report(transaction);
@@ -316,8 +317,16 @@ public class ElasticApmTracer {
         }
     }
 
+    private void trackMetrics(Transaction transaction) {
+        metricRegistry.
+    }
+
     @SuppressWarnings("ReferenceEquality")
     public void endSpan(Span span) {
+        final Transaction transaction = currentTransaction();
+        if (transaction != null) {
+            transaction.onSpanEnd(span);
+        }
         if (span.isSampled()) {
             long spanFramesMinDurationMs = stacktraceConfiguration.getSpanFramesMinDurationMs();
             if (spanFramesMinDurationMs != 0 && span.isSampled()) {
