@@ -182,6 +182,17 @@ public class ElasticApmTracer {
     }
 
     /**
+     * Starts a transaction as the root of the trace
+     *
+     * @param initiatingClassLoader the class loader corresponding to the service which initiated the creation of the transaction.
+     *                              Used to determine the service name.
+     * @return a transaction which is a child of the provided parent
+     */
+    public Transaction startRootTransaction(@Nullable ClassLoader initiatingClassLoader) {
+        return startTransaction(TraceContext.asRoot(), null, sampler, -1, initiatingClassLoader);
+    }
+
+    /**
      * Starts a transaction as a child of the provided parent
      *
      * @param childContextCreator   used to make the transaction a child of the provided parent

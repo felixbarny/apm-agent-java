@@ -21,10 +21,13 @@ package co.elastic.apm.agent.benchmark;
 
 import co.elastic.apm.agent.benchmark.profiler.CpuProfiler;
 import co.elastic.apm.agent.benchmark.profiler.ReporterProfiler;
+import co.elastic.apm.agent.jfr.FlightRecorderProfiler;
 import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.profile.GCProfiler;
 import org.openjdk.jmh.runner.Runner;
@@ -32,11 +35,15 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 import org.openjdk.jmh.runner.options.TimeValue;
 
+import java.io.IOException;
+import java.nio.file.Paths;
+import java.time.Duration;
+
 @State(Scope.Benchmark)
-@Warmup(iterations = 10)
-@Measurement(iterations = 10)
+@Warmup(iterations = 2)
+@Measurement(iterations = 2)
 // set value = 0 if you want to debug the benchmarks
-@Fork(value = 1, jvmArgsAppend = {
+@Fork(value = 0, jvmArgsAppend = {
     "-Xmx1g",
     "-Xms1g"/*,
     "-XX:+UnlockDiagnosticVMOptions",
@@ -48,6 +55,8 @@ import org.openjdk.jmh.runner.options.TimeValue;
         "settings=profile"*/
 })
 public abstract class AbstractBenchmark {
+
+    private FlightRecorderProfiler profiler;
 
     /**
      * Convenience benchmark run method
@@ -65,6 +74,16 @@ public abstract class AbstractBenchmark {
             .addProfiler(ReporterProfiler.class)
             .build())
             .run();
+    }
+
+    @Setup
+    public final void enableFlightRecorder() throws IOException {
+        profiler = new FlightRecorderProfiler(Duration.ofMillis(10)).withThreadLabels().withTransactionLabels(Duration.ofMillis(1)).start();
+    }
+
+    @TearDown
+    public final void dumpFlightRecorder() throws IOException {
+        profiler.stop().exportFlamegraphSvgs(Paths.get("/Users/felixbarnsteiner/projects/github/brendangregg/FlameGraph/flamegraph.pl"), Paths.get("flamegraphs"));
     }
 
 

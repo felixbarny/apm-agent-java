@@ -56,4 +56,10 @@ class HexUtilsTest {
         HexUtils.nextBytes("0a0", 0, bytes);
         assertThat(bytes).isEqualTo(new byte[]{10});
     }
+
+    @Test
+    void testLongToHex() {
+        long l = 42;
+        assertThat(HexUtils.longToHex(l)).isEqualTo(String.format("%016X", l).toLowerCase());
+    }
 }

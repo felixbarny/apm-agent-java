@@ -43,8 +43,8 @@ public class JdbcHelperImpl implements JdbcHelper {
         if (sql == null || isAlreadyMonitored(parent) || parent == null || !parent.isSampled()) {
             return null;
         }
-        Span span = parent.createSpan().activate();
-        span.setName(getMethod(sql));
+        Span span = parent.createSpan();
+        span.withName(getMethod(sql)).activate();
         // setting the type here is important
         // getting the meta data can result in another jdbc call
         // if that is traced as well -> StackOverflowError

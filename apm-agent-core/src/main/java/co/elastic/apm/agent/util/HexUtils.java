@@ -21,12 +21,20 @@ package co.elastic.apm.agent.util;
 
 import com.dslplatform.json.JsonWriter;
 
+import java.nio.ByteBuffer;
+
 public class HexUtils {
 
     private final static char[] hexArray = "0123456789abcdef".toCharArray();
 
     private HexUtils() {
         // only static utility methods, don't instantiate
+    }
+
+    public static String longToHex(long l) {
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        buffer.putLong(l);
+        return bytesToHex(buffer.array());
     }
 
     /**
