@@ -1,8 +1,28 @@
+/*-
+ * #%L
+ * Elastic APM Java agent
+ * %%
+ * Copyright (C) 2018 - 2019 Elastic and contributors
+ * %%
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * #L%
+ */
 package co.elastic.apm.agent.jfr;
 
 import co.elastic.apm.agent.util.HexUtils;
 import jdk.jfr.Recording;
 import jdk.jfr.RecordingState;
+import jdk.jfr.consumer.RecordedClass;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordedFrame;
 import jdk.jfr.consumer.RecordedMethod;
@@ -11,6 +31,7 @@ import jdk.jfr.consumer.RecordingFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,9 +60,11 @@ import java.util.stream.Collectors;
 public class FlightRecorderProfiler {
 
     private static final Logger logger = LoggerFactory.getLogger(FlightRecorderProfiler.class);
+    public static final int MAX_STACK_DEPTH = 128;
 
     private final Map<Map<String, String>, CallTree> callTreeByLabels = new HashMap<>();
     private final Path jfrFile;
+    private final Duration samplingInterval;
     private final Recording recording;
     private List<Function<RecordedEvent, Map<String, String>>> labelExtractors = new ArrayList<>();
     private Map<String, Collection<Consumer<RecordedEvent>>> eventConsumers = new HashMap<>();
@@ -53,11 +76,22 @@ public class FlightRecorderProfiler {
 
     private FlightRecorderProfiler(Path jfrFile, Duration samplingInterval) throws IOException {
         this.jfrFile = jfrFile;
+        this.samplingInterval = samplingInterval;
         recording = new Recording();
+        recording.setSettings(Map.of("stackdepth", Integer.toString(MAX_STACK_DEPTH)));
         recording.setDestination(this.jfrFile);
-        recording.enable("jdk.ExecutionSample").withPeriod(samplingInterval);
         recording.disable(JfrEventActivationListener.ActiveTransactionEvent.class);
-        addEventConsumer("jdk.ExecutionSample", event -> {
+        activateSampleEvent(samplingInterval, "jdk.ExecutionSample");
+    }
+
+    public FlightRecorderProfiler activateNativeMethodSample() {
+        activateSampleEvent(samplingInterval, "jdk.NativeMethodSample");
+        return this;
+    }
+
+    private void activateSampleEvent(Duration samplingInterval, String eventName) {
+        recording.enable(eventName).withPeriod(samplingInterval);
+        addEventConsumer(eventName, event -> {
             if (includedThreadIds.isEmpty() || includedThreadIds.contains(event.getThread("sampledThread").getId())) {
                 addToCallGraph(getLabels(event), event);
             }
@@ -171,6 +205,7 @@ public class FlightRecorderProfiler {
         }
     }
 
+    @Nullable
     public CallTree getAggregateCallTree() {
         return getCallTreeByLabels().values().stream().reduce(CallTree::merge).orElse(null);
     }
@@ -196,6 +231,7 @@ public class FlightRecorderProfiler {
             }
         }
 
+        @Nullable
         private RecordedEvent getConcurrentActivationEvent(RecordedEvent executionSampleEvent) {
             final TreeMap<Instant, RecordedEvent> activationEventsByTime = activationEventsByStartTimeAndThread.get(executionSampleEvent.getThread("sampledThread").getId());
             if (activationEventsByTime != null) {
@@ -211,13 +247,14 @@ public class FlightRecorderProfiler {
 
     public static class CallTree {
 
+        @Nullable
         private CallTree parent;
         private Map<String, CallTree> children = new HashMap<>();
         private String signature;
         private int count;
         private int selfCount;
 
-        public CallTree(CallTree parent, String signature) {
+        public CallTree(@Nullable CallTree parent, String signature) {
             this.parent = parent;
             this.signature = signature;
         }
@@ -235,8 +272,12 @@ public class FlightRecorderProfiler {
         }
 
         public void addStackTrace(RecordedStackTrace stackTrace) {
-            addFrame(stackTrace.getFrames().listIterator(stackTrace.getFrames().size()));
-            incrementCount(false);
+            if (!stackTrace.isTruncated()) {
+                addFrame(stackTrace.getFrames().listIterator(stackTrace.getFrames().size()));
+                incrementCount(false);
+            } else {
+                logger.debug("skipping truncated stack trace");
+            }
         }
 
         private void addFrame(ListIterator<RecordedFrame> iterator) {
@@ -266,7 +307,12 @@ public class FlightRecorderProfiler {
 
         private String getSignature(RecordedFrame frame) {
             final RecordedMethod method = frame.getMethod();
-            return method.getType().getName() + "." + method.getName()/* + method.getDescriptor()*/;
+            @Nullable final RecordedClass type = method.getType();
+            if (type != null) {
+                return type.getName() + "." + method.getName();
+            } else {
+                return method.getName();
+            }
         }
 
         @Override
@@ -313,7 +359,7 @@ public class FlightRecorderProfiler {
         }
 
         public void toFolded(Appendable out) throws IOException {
-            if (selfCount > 0) {
+            if (parent != null && selfCount > 0) {
                 parent.foldParents(out);
                 out.append(signature).append(' ').append(Integer.toString(count)).append('\n');
             }
