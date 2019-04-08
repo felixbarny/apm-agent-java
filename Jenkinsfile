@@ -1,6 +1,6 @@
 #!/usr/bin/env groovy
 
-@Library('apm@v1.0.6') _
+@Library('apm@current') _
   
 pipeline {
   agent any
@@ -8,6 +8,8 @@ pipeline {
     BASE_DIR="src/github.com/elastic/apm-agent-java"
     NOTIFY_TO = credentials('notify-to')
     JOB_GCS_BUCKET = credentials('gcs-bucket')
+    DOCKERHUB_SECRET = 'secret/apm-team/ci/elastic-observability-dockerhub'
+    CODECOV_SECRET = 'secret/apm-team/ci/apm-agent-java-codecov'
   }
   options {
     timeout(time: 1, unit: 'HOURS')
@@ -16,6 +18,8 @@ pipeline {
     ansiColor('xterm')
     disableResume()
     durabilityHint('PERFORMANCE_OPTIMIZED')
+    rateLimitBuilds(throttle: [count: 60, durationName: 'hour', userBoost: true])
+    quietPeriod(10)
   }
   triggers {
     issueCommentTrigger('.*(?:jenkins\\W+)?run\\W+(?:the\\W+)?tests(?:\\W+please)?.*')
@@ -64,6 +68,9 @@ pipeline {
               """
             }
             stash allowEmpty: true, name: 'build', useDefaultExcludes: false
+            archiveArtifacts allowEmptyArchive: true,
+              artifacts: "${BASE_DIR}/elastic-apm-agent/target/elastic-apm-agent-*.jar,${BASE_DIR}/apm-agent-attach/target/apm-agent-attach-*.jar", 
+              onlyIfSuccessful: true
           }
         }
       }
@@ -98,10 +105,7 @@ pipeline {
           }
           post {
             always {
-              junit(allowEmptyResults: true,
-                keepLongStdio: true,
-                testResults: "${BASE_DIR}/**/junit-*.xml,${BASE_DIR}/**/TEST-*.xml")
-              codecov(repo: 'apm-agent-java', basedir: "${BASE_DIR}")
+              reportTestResults()
             }
           }
         }
@@ -124,15 +128,13 @@ pipeline {
             deleteDir()
             unstash 'build'
             dir("${BASE_DIR}"){
+              dockerLogin(secret: "${DOCKERHUB_SECRET}", registry: "docker.io")
               sh './scripts/jenkins/smoketests-01.sh'
             }
           }
           post {
             always {
-              junit(allowEmptyResults: true,
-                keepLongStdio: true,
-                testResults: "${BASE_DIR}/**/junit-*.xml,${BASE_DIR}/**/TEST-*.xml")
-              codecov(repo: 'apm-agent-java', basedir: "${BASE_DIR}")
+              reportTestResults()
             }
           }
         }
@@ -155,15 +157,13 @@ pipeline {
             deleteDir()
             unstash 'build'
             dir("${BASE_DIR}"){
+              dockerLogin(secret: "${DOCKERHUB_SECRET}", registry: "docker.io")
               sh './scripts/jenkins/smoketests-02.sh'
             }
           }
           post {
             always {
-              junit(allowEmptyResults: true,
-                keepLongStdio: true,
-                testResults: "${BASE_DIR}/**/junit-*.xml,${BASE_DIR}/**/TEST-*.xml")
-              codecov(repo: 'apm-agent-java', basedir: "${BASE_DIR}")
+              reportTestResults()
             }
           }
         }
@@ -184,9 +184,6 @@ pipeline {
             beforeAgent true
             allOf {
               anyOf {
-                not {
-                  changeRequest()
-                }
                 branch 'master'
                 branch "\\d+\\.\\d+"
                 branch "v\\d?"
@@ -260,25 +257,13 @@ pipeline {
       }
       when {
         beforeAgent true
-        anyOf{
-          allOf {
-            branch 'master'
-            expression { return params.doc_ci }
-          }
-          expression { return params.Run_As_Master_Branch && params.doc_ci }
-        }
+        expression { return params.doc_ci }
       }
       steps {
         deleteDir()
         unstash 'source'
-        checkoutElasticDocsTools(basedir: "${ELASTIC_DOCS}")
         dir("${BASE_DIR}"){
-          sh './scripts/jenkins/docs.sh'
-        }
-      }
-      post{
-        success {
-          tar(file: "doc-files.tgz", archive: true, dir: "html", pathPrefix: "${BASE_DIR}/docs")
+          buildDocs(docsDir: "docs", archive: true)
         }
       }
     }
@@ -298,4 +283,11 @@ pipeline {
       echoColor(text: '[UNSTABLE]', colorfg: 'yellow', colorbg: 'default')
     }
   }
+}
+
+def reportTestResults(){
+  junit(allowEmptyResults: true,
+    keepLongStdio: true,
+    testResults: "${BASE_DIR}/**/junit-*.xml,${BASE_DIR}/**/TEST-*.xml")
+  codecov(repo: 'apm-agent-java', basedir: "${BASE_DIR}", secret: "${CODECOV_SECRET}")
 }

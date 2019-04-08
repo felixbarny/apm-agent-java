@@ -1,8 +1,49 @@
-# next (1.5.0)
+# next (1.6.0)
 
 ## Features
 
 ## Bug Fixes
+* Avoid that the agent blocks server shutdown in case the APM Server is not available
+
+# 1.5.0
+
+## Potentially breaking changes
+ * If you didn't explicitly set the [`service_name`](https://www.elastic.co/guide/en/apm/agent/java/master/config-core.html#config-service-name)
+   previously and you are dealing with a servlet-based application (including Spring Boot),
+   your `service_name` will change.
+   See the documentation for [`service_name`](https://www.elastic.co/guide/en/apm/agent/java/master/config-core.html#config-service-name)
+   and the corresponding section in _Features_ for more information.
+   Note: this requires APM Server 7.0+. If using previous versions, nothing will change.
+
+## Features
+ * Added property "allow_path_on_hierarchy" to JAX-RS plugin, to lookup inherited usage of `@path`
+ * Support for number and boolean labels in the public API (#497).
+   This change also renames `tag` to `label` on the API level to be compliant with the [Elastic Common Schema (ECS)](https://github.com/elastic/ecs#-base-fields).
+   The `addTag(String, String)` method is still supported but deprecated in favor of `addLabel(String, String)`.
+   As of version 7.x of the stack, labels will be stored under `labels` in Elasticsearch.
+   Previously, they were stored under `context.tags`.
+ * Support async queries made by Elasticsearch REST client 
+ * Added `setStartTimestamp(long epochMicros)` and `end(long epochMicros)` API methods to `Span` and `Transaction`,
+   allowing to set custom start and end timestamps.
+ * Auto-detection of the `service_name` based on the `<display-name>` element of the `web.xml` with a fallback to the servlet context path.
+   If you are using a spring-based application, the agent will use the setting for `spring.application.name` for its `service_name`.
+   See the documentation for [`service_name`](https://www.elastic.co/guide/en/apm/agent/java/master/config-core.html#config-service-name)
+   for more information.
+   Note: this requires APM Server 7.0+. If using previous versions, nothing will change.
+ * Previously, enabling [`capture_body`](https://www.elastic.co/guide/en/apm/agent/java/master/config-http.html#config-capture-body) could only capture form parameters.
+   Now it supports all UTF-8 encoded plain-text content types.
+   The option [`capture_body_content_types`](https://www.elastic.co/guide/en/apm/agent/java/master/config-http.html#config-capture-body-content-types)
+   controls which `Content-Type`s should be captured.
+ * Support async calls made by OkHttp client (`Call#enqueue`)
+ * Added support for providing config options on agent attach.
+   * CLI example: `--config server_urls=http://localhost:8200,http://localhost:8201`
+   * API example: `ElasticApmAttacher.attach(Map.of("server_urls", "http://localhost:8200,http://localhost:8201"));`
+
+## Bug Fixes
+ * Logging integration through MDC is not working properly - [#499](https://github.com/elastic/apm-agent-java/issues/499)
+ * ClassCastException with adoptopenjdk/openjdk11-openj9 - [#505](https://github.com/elastic/apm-agent-java/issues/505)
+ * Span count limitation is not working properly - reported [in our forum](https://discuss.elastic.co/t/kibana-apm-not-showing-spans-which-are-visible-in-discover-too-many-spans/171690)
+ * Java agent causes Exceptions in Alfresco cluster environment due to failure in the instrumentation of Hazelcast `Executor`s - reported [in our forum](https://discuss.elastic.co/t/cant-run-apm-java-agent-in-alfresco-cluster-environment/172962)
 
 # 1.4.0
 

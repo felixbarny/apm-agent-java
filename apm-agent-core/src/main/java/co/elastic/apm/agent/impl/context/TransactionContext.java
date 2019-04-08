@@ -49,6 +49,7 @@ public class TransactionContext extends AbstractContext {
     private final User user = new User();
 
     public void copyFrom(TransactionContext other) {
+        super.copyFrom(other);
         response.copyFrom(other.response);
         request.copyFrom(other.request);
         user.copyFrom(other.user);
@@ -90,5 +91,9 @@ public class TransactionContext extends AbstractContext {
         response.resetState();
         request.resetState();
         user.resetState();
+    }
+
+    public void onTransactionEnd() {
+        request.onTransactionEnd();
     }
 }
