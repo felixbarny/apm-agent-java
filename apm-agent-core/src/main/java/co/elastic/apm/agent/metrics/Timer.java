@@ -1,29 +1,43 @@
 package co.elastic.apm.agent.metrics;
 
-import co.elastic.apm.agent.impl.transaction.AbstractSpan;
 import co.elastic.apm.agent.objectpool.Recyclable;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Timer implements Recyclable {
+    private static final double MS_IN_MICROS = TimeUnit.MILLISECONDS.toMicros(1);
+
     private AtomicLong totalTime = new AtomicLong();
     private AtomicLong count = new AtomicLong();
 
-    void increment(long duration) {
-        totalTime.addAndGet(duration);
-        count.incrementAndGet();
+    public void update(long durationNs) {
+        update(durationNs, 1);
+    }
+
+    public void update(long durationNs, long count) {
+        this.totalTime.addAndGet(durationNs);
+        this.count.addAndGet(count);
+    }
+
+    public long getTotalTimeNs() {
+        return totalTime.get();
     }
 
     public double getTotalTimeMs() {
-        return totalTime.get() / AbstractSpan.MS_IN_MICROS;
+        return totalTime.get() / MS_IN_MICROS;
     }
 
     public double getAverageMs() {
-        return totalTime.get() / AbstractSpan.MS_IN_MICROS / count.get();
+        return totalTime.get() / MS_IN_MICROS / count.get();
     }
 
     public long getCount() {
         return count.get();
+    }
+
+    public boolean hasContent() {
+        return count.get() > 0;
     }
 
     @Override

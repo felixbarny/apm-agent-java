@@ -37,7 +37,7 @@ class MetricSetSerializationTest {
     private ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void testSerialization() throws IOException {
+    void testSerializeGauges() throws IOException {
         final MetricSet metricSet = new MetricSet(Collections.singletonMap("foo.bar", "baz"));
         metricSet.add("foo.bar", () -> 42);
         metricSet.add("bar.baz", () -> 42);
@@ -46,6 +46,22 @@ class MetricSetSerializationTest {
         System.out.println(metricSetAsString);
         final JsonNode jsonNode = objectMapper.readTree(metricSetAsString);
         assertThat(jsonNode.get("metricset").get("samples").get("foo.bar").get("value").doubleValue()).isEqualTo(42);
+    }
+
+    @Test
+    void testSerializeTimers() throws IOException {
+        final MetricSet metricSet = new MetricSet(Collections.singletonMap("foo.bar", "baz"));
+        metricSet.timer("foo.bar").update(42);
+        metricSet.timer("bar.baz").update(42, 2);
+        MetricRegistrySerializer.serializeMetricSet(metricSet, System.currentTimeMillis() * 1000, new StringBuilder(), jw);
+        final String metricSetAsString = jw.toString();
+        System.out.println(metricSetAsString);
+        final JsonNode jsonNode = objectMapper.readTree(metricSetAsString);
+        final JsonNode samples = jsonNode.get("metricset").get("samples");
+        assertThat(samples.get("foo.bar.sum").get("value").doubleValue()).isEqualTo(42.0 / 1000);
+        assertThat(samples.get("foo.bar.count").get("value").doubleValue()).isEqualTo(1);
+        assertThat(samples.get("bar.baz.sum").get("value").doubleValue()).isEqualTo(42.0 / 1000);
+        assertThat(samples.get("bar.baz.count").get("value").doubleValue()).isEqualTo(2);
     }
 
     @Test

@@ -74,7 +74,7 @@ public class Transaction extends AbstractSpan<Transaction> {
         }
     }
 
-    private void incrementTimer(String type, long duration) {
+    void incrementTimer(String type, long duration) {
         Timer timer = spanTimings.get(type);
         if (timer == null) {
             timer = new Timer();
@@ -83,7 +83,7 @@ public class Transaction extends AbstractSpan<Transaction> {
                 timer = racyTimer;
             }
         }
-        timer.increment(duration);
+        timer.update(duration);
     }
 
     public <T> Transaction start(TraceContext.ChildContextCreator<T> childContextCreator, @Nullable T parent, long epochMicros, Sampler sampler) {
@@ -188,8 +188,8 @@ public class Transaction extends AbstractSpan<Transaction> {
     }
 
     @Override
-    public void doEnd() {
-        incrementTimer("other", getSelfDuration());
+    public void doEnd(long epochMicros) {
+        incrementTimer("transaction", getSelfDuration());
         if (!isSampled()) {
             context.resetState();
         }

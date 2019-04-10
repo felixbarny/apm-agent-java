@@ -60,6 +60,8 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     private Throwable stacktrace;
     @Nullable
     private AbstractSpan<?> parent;
+    @Nullable
+    private Transaction transaction;
 
     public Span(ElasticApmTracer tracer) {
         super(tracer);
@@ -70,6 +72,11 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
         childContextCreator.asChildOf(traceContext, parentContext);
         if (parentContext instanceof AbstractSpan) {
             this.parent = (AbstractSpan<?>) parentContext;
+            if (parentContext instanceof Transaction) {
+                transaction = (Transaction) parentContext;
+            } else if (parentContext instanceof Span) {
+                transaction = ((Span) parentContext).transaction;
+            }
         }
         if (dropped) {
             traceContext.setRecorded(false);
@@ -173,7 +180,7 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     }
 
     @Override
-    public void doEnd() {
+    public void doEnd(long epochMicros) {
         if (logger.isDebugEnabled()) {
             logger.debug("} endSpan {}", this);
             if (logger.isTraceEnabled()) {
@@ -183,8 +190,12 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
         if (type == null) {
             type = "custom";
         }
+        // TODO make thread safe
         if (parent != null) {
-            parent.onChildEnd(this);
+            parent.onChildEnd(this, epochMicros);
+        }
+        if (transaction != null) {
+            transaction.onSpanEnd(this);
         }
         this.tracer.endSpan(this);
     }
@@ -197,6 +208,8 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
         type = null;
         subtype = null;
         action = null;
+        parent = null;
+        transaction = null;
     }
 
     @Override
@@ -226,5 +239,17 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     public Span withStacktrace(Throwable stacktrace) {
         this.stacktrace = stacktrace;
         return this;
+    }
+
+    public void onParentEnd(long epochMicros) {
+        // TODO make thread safe
+        if (parent != null) {
+            parent.onChildEnd(this, epochMicros);
+        }
+        if (type != null && transaction != null) {
+            transaction.incrementTimer(type, epochMicros - getTimestamp() - childDurations.getDuration());
+        }
+        parent = null;
+        transaction = null;
     }
 }

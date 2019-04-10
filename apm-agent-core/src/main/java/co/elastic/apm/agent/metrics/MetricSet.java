@@ -40,6 +40,7 @@ import java.util.concurrent.ConcurrentMap;
 public class MetricSet {
     private final Map<String, String> labels;
     private final ConcurrentMap<String, DoubleSupplier> samples = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Timer> timers = new ConcurrentHashMap<>();
 
     public MetricSet(Map<String, String> labels) {
         this.labels = labels;
@@ -57,7 +58,20 @@ public class MetricSet {
         return labels;
     }
 
-    public Map<String, DoubleSupplier> getSamples() {
+    public Map<String, DoubleSupplier> getGauges() {
         return samples;
+    }
+
+    public Timer timer(String timerName) {
+        Timer timer = timers.get(timerName);
+        if (timer == null) {
+            timers.putIfAbsent(timerName, new Timer());
+            timer = timers.get(timerName);
+        }
+        return timer;
+    }
+
+    public Map<String, Timer> getTimers() {
+        return timers;
     }
 }

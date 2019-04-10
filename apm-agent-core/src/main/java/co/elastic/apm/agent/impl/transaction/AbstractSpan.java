@@ -20,12 +20,16 @@
 package co.elastic.apm.agent.impl.transaction;
 
 import co.elastic.apm.agent.impl.ElasticApmTracer;
+import co.elastic.apm.agent.objectpool.Recyclable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextHolder<T> {
@@ -44,7 +48,43 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
 
     // in microseconds
     protected long duration;
-    private AtomicLong childDurations = new AtomicLong();
+    protected ReentrantTimer childDurations = new ReentrantTimer();
+    // TODO make thread safe
+    private List<Span> runningChildSpans = new ArrayList<>();
+
+    public static class ReentrantTimer implements Recyclable {
+
+        private AtomicInteger nestingLevel = new AtomicInteger();
+        private AtomicLong start = new AtomicLong();
+        private AtomicLong duration = new AtomicLong();
+
+        public void start(long startTimestamp) {
+            if (nestingLevel.incrementAndGet() == 1) {
+                start.set(startTimestamp);
+            }
+        }
+
+        public void stop(long endTimestamp) {
+            if (nestingLevel.decrementAndGet() == 0) {
+                incrementDuration(endTimestamp);
+            }
+        }
+
+        private void incrementDuration(long epochMicros) {
+            duration.addAndGet(epochMicros - start.get());
+        }
+
+        @Override
+        public void resetState() {
+            nestingLevel.set(0);
+            start.set(0);
+            duration.set(0);
+        }
+
+        public long getDuration() {
+            return duration.get();
+        }
+    }
 
     private volatile boolean finished = true;
 
@@ -62,7 +102,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     }
 
     public long getSelfDuration() {
-        return duration - childDurations.get();
+        return duration - childDurations.getDuration();
     }
 
     public double getDurationMs() {
@@ -122,7 +162,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         duration = 0;
         isLifecycleManagingThreadSwitch = false;
         traceContext.resetState();
-        childDurations.set(0);
+        childDurations.resetState();
     }
 
     public boolean isChildOf(AbstractSpan<?> parent) {
@@ -135,7 +175,9 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     }
 
     public Span createSpan(long epochMicros) {
-        return tracer.startSpan(this, epochMicros);
+        final Span span = tracer.startSpan(this, epochMicros);
+        onChildStart(span, epochMicros);
+        return span;
     }
 
     public abstract void addLabel(String key, String value);
@@ -159,14 +201,19 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
             if (name.length() == 0) {
                 name.append("unnamed");
             }
-            doEnd();
+            // TODO beware of race conditions
+            for (int i = 0; i < runningChildSpans.size(); i++) {
+               runningChildSpans.get(i).onParentEnd(epochMicros);
+            }
+            runningChildSpans.clear();
+            doEnd(epochMicros);
         } else {
             logger.warn("End has already been called: {}", this);
             assert false;
         }
     }
 
-    protected abstract void doEnd();
+    protected abstract void doEnd(long epochMicros);
 
     @Override
     public boolean isChildOf(TraceContextHolder other) {
@@ -227,7 +274,13 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         timestamp = epochMicros;
     }
 
-    void onChildEnd(Span span) {
-        childDurations.addAndGet(span.duration);
+    private void onChildStart(Span span, long epochMicros) {
+        runningChildSpans.add(span);
+        childDurations.start(epochMicros);
+    }
+
+    void onChildEnd(Span span, long epochMicros) {
+        runningChildSpans.remove(span);
+        childDurations.stop(epochMicros);
     }
 }

@@ -36,6 +36,7 @@ import co.elastic.apm.agent.impl.transaction.TraceContext;
 import co.elastic.apm.agent.impl.transaction.TraceContextHolder;
 import co.elastic.apm.agent.impl.transaction.Transaction;
 import co.elastic.apm.agent.metrics.MetricRegistry;
+import co.elastic.apm.agent.metrics.Timer;
 import co.elastic.apm.agent.objectpool.Allocator;
 import co.elastic.apm.agent.objectpool.ObjectPool;
 import co.elastic.apm.agent.objectpool.impl.QueueBasedObjectPool;
@@ -54,6 +55,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 
 import static org.jctools.queues.spec.ConcurrentQueueSpec.createBoundedMpmc;
@@ -354,16 +356,25 @@ public class ElasticApmTracer {
         }
     }
 
+    // TODO move to transaction end listener
     private void trackMetrics(Transaction transaction) {
-        metricRegistry.
+        final String transactionName = transaction.getName().toString();
+        for (Map.Entry<String, Timer> entry : transaction.getSpanTimings().entrySet()) {
+            // TODO create Tags class which can take a CharSequence as a value
+            final Timer timer = entry.getValue();
+            if (timer.getCount() > 0) {
+                metricRegistry.timer("self_time", Map.of(
+                    "transaction.name", transactionName,
+                    "transaction.type", transaction.getType(),
+                    "span.type", entry.getKey()
+                    )
+                ).update(timer.getTotalTimeNs(), timer.getCount());
+            }
+        }
     }
 
     @SuppressWarnings("ReferenceEquality")
     public void endSpan(Span span) {
-        final Transaction transaction = currentTransaction();
-        if (transaction != null) {
-            transaction.onSpanEnd(span);
-        }
         if (span.isSampled()) {
             long spanFramesMinDurationMs = stacktraceConfiguration.getSpanFramesMinDurationMs();
             if (spanFramesMinDurationMs != 0 && span.isSampled()) {

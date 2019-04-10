@@ -101,11 +101,7 @@ public class MetricRegistry {
         if (isDisabled(name)) {
             return;
         }
-        MetricSet metricSet = metricSets.get(tags);
-        if (metricSet == null) {
-            metricSets.putIfAbsent(tags, new MetricSet(tags));
-            metricSet = metricSets.get(tags);
-        }
+        MetricSet metricSet = getOrCreateMetricSet(tags);
         metricSet.add(name, metric);
     }
 
@@ -123,5 +119,18 @@ public class MetricRegistry {
 
     public Map<Map<String, String>, MetricSet> getMetricSets() {
         return metricSets;
+    }
+
+    public Timer timer(String timerName, Map<String, String> tags) {
+        return getOrCreateMetricSet(tags).timer(timerName);
+    }
+
+    private MetricSet getOrCreateMetricSet(Map<String, String> tags) {
+        MetricSet metricSet = metricSets.get(tags);
+        if (metricSet == null) {
+            metricSets.putIfAbsent(tags, new MetricSet(tags));
+            metricSet = metricSets.get(tags);
+        }
+        return metricSet;
     }
 }
