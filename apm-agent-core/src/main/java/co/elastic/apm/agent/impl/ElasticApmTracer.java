@@ -53,6 +53,7 @@ import org.stagemonitor.configuration.ConfigurationRegistry;
 import javax.annotation.Nullable;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -363,12 +364,11 @@ public class ElasticApmTracer {
             // TODO create Tags class which can take a CharSequence as a value
             final Timer timer = entry.getValue();
             if (timer.getCount() > 0) {
-                metricRegistry.timer("self_time", Map.of(
-                    "transaction.name", transactionName,
-                    "transaction.type", transaction.getType(),
-                    "span.type", entry.getKey()
-                    )
-                ).update(timer.getTotalTimeNs(), timer.getCount());
+                final Map<String, String> tags = new HashMap<>();
+                tags.put("transaction.name", transactionName);
+                tags.put("transaction.type", transaction.getType());
+                tags.put("span.type", entry.getKey());
+                metricRegistry.timer("self_time", tags).update(timer.getTotalTimeNs(), timer.getCount());
             }
         }
     }

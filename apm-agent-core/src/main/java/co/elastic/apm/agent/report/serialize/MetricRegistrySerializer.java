@@ -36,8 +36,11 @@ public class MetricRegistrySerializer {
     public static void serialize(MetricRegistry metricRegistry, StringBuilder replaceBuilder, JsonWriter jw) {
         final long timestamp = System.currentTimeMillis() * 1000;
         for (MetricSet metricSet : metricRegistry.getMetricSets().values()) {
-            serializeMetricSet(metricSet, timestamp, replaceBuilder, jw);
-            jw.writeByte(NEW_LINE);
+            if (metricSet.hasContent()) {
+                serializeMetricSet(metricSet, timestamp, replaceBuilder, jw);
+                metricSet.onAfterReport();
+                jw.writeByte(NEW_LINE);
+            }
         }
     }
 
@@ -98,9 +101,7 @@ public class MetricRegistrySerializer {
     }
 
     private static void serializeTimers(Map<String, Timer> timers, boolean hasSamples, JsonWriter jw) {
-        if (hasSamples) {
-            jw.writeByte(JsonWriter.COMMA);
-        }
+
         final int size = timers.size();
         if (size > 0) {
             final Iterator<Map.Entry<String, Timer>> iterator = timers.entrySet().iterator();
@@ -111,6 +112,9 @@ public class MetricRegistrySerializer {
                 Map.Entry<String, Timer> kv = iterator.next();
                 if (kv.getValue().hasContent()) {
                     value = kv.getValue();
+                    if (hasSamples) {
+                        jw.writeByte(JsonWriter.COMMA);
+                    }
                     serializeTimer(kv.getKey(), value, jw);
                 }
             }

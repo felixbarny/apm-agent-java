@@ -19,7 +19,9 @@
  */
 package co.elastic.apm.agent.report.serialize;
 
+import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.metrics.MetricSet;
+import co.elastic.apm.agent.report.ReporterConfiguration;
 import com.dslplatform.json.DslJson;
 import com.dslplatform.json.JsonWriter;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,6 +32,7 @@ import java.io.IOException;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class MetricSetSerializationTest {
 
@@ -58,10 +61,38 @@ class MetricSetSerializationTest {
         System.out.println(metricSetAsString);
         final JsonNode jsonNode = objectMapper.readTree(metricSetAsString);
         final JsonNode samples = jsonNode.get("metricset").get("samples");
-        assertThat(samples.get("foo.bar.sum").get("value").doubleValue()).isEqualTo(42.0 / 1000);
+        assertThat(samples.get("foo.bar.sum").get("value").doubleValue()).isEqualTo(42 / 1000.0);
         assertThat(samples.get("foo.bar.count").get("value").doubleValue()).isEqualTo(1);
-        assertThat(samples.get("bar.baz.sum").get("value").doubleValue()).isEqualTo(42.0 / 1000);
+        assertThat(samples.get("bar.baz.sum").get("value").doubleValue()).isEqualTo(42 / 1000.0);
         assertThat(samples.get("bar.baz.count").get("value").doubleValue()).isEqualTo(2);
+    }
+
+    @Test
+    void testSerializeTimersReset() throws IOException {
+        final MetricSet metricSet = new MetricSet(Collections.singletonMap("foo.bar", "baz"));
+        metricSet.timer("foo.bar").update(42);
+        metricSet.timer("bar.baz").update(42, 2);
+        MetricRegistrySerializer.serializeMetricSet(metricSet, System.currentTimeMillis() * 1000, new StringBuilder(), jw);
+        jw.reset();
+        metricSet.timer("foo.bar").update(42);
+        MetricRegistrySerializer.serializeMetricSet(metricSet, System.currentTimeMillis() * 1000, new StringBuilder(), jw);
+        final String metricSetAsString = jw.toString();
+        System.out.println(metricSetAsString);
+        final JsonNode jsonNode = objectMapper.readTree(metricSetAsString);
+        final JsonNode samples = jsonNode.get("metricset").get("samples");
+        assertThat(samples.get("foo.bar.sum").get("value").doubleValue()).isEqualTo(42 / 1000.0);
+        assertThat(samples.get("foo.bar.count").get("value").doubleValue()).isEqualTo(1);
+    }
+
+    @Test
+    void testSerializeEmptyMetricSet() {
+        final MetricRegistry metricRegistry = new MetricRegistry(mock(ReporterConfiguration.class));
+        metricRegistry.timer("foo.bar", Collections.singletonMap("foo.bar", "baz")).update(42);
+        MetricRegistrySerializer.serialize(metricRegistry, new StringBuilder(), jw);
+        assertThat(jw.toString()).isNotEmpty();
+        jw.reset();
+        MetricRegistrySerializer.serialize(metricRegistry, new StringBuilder(), jw);
+        assertThat(jw.toString()).isEmpty();
     }
 
     @Test

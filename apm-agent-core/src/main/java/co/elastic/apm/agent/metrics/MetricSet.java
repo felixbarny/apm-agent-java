@@ -39,19 +39,20 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class MetricSet {
     private final Map<String, String> labels;
-    private final ConcurrentMap<String, DoubleSupplier> samples = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, DoubleSupplier> gauges = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> timers = new ConcurrentHashMap<>();
+    private volatile boolean hasNonEmptyTimer;
 
     public MetricSet(Map<String, String> labels) {
         this.labels = labels;
     }
 
     public void add(String name, DoubleSupplier metric) {
-        samples.putIfAbsent(name, metric);
+        gauges.putIfAbsent(name, metric);
     }
 
     DoubleSupplier get(String name) {
-        return samples.get(name);
+        return gauges.get(name);
     }
 
     public Map<String, String> getLabels() {
@@ -59,10 +60,11 @@ public class MetricSet {
     }
 
     public Map<String, DoubleSupplier> getGauges() {
-        return samples;
+        return gauges;
     }
 
     public Timer timer(String timerName) {
+        hasNonEmptyTimer = true;
         Timer timer = timers.get(timerName);
         if (timer == null) {
             timers.putIfAbsent(timerName, new Timer());
@@ -73,5 +75,13 @@ public class MetricSet {
 
     public Map<String, Timer> getTimers() {
         return timers;
+    }
+
+    public boolean hasContent() {
+        return !gauges.isEmpty() || hasNonEmptyTimer;
+    }
+
+    public void onAfterReport() {
+        hasNonEmptyTimer = false;
     }
 }
