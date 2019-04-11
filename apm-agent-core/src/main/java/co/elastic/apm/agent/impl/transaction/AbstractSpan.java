@@ -94,8 +94,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     }
 
     /**
-     * How long the transaction took to complete, in ms with 3 decimal points
-     * (Required)
+     * How long the transaction took to complete, in µs
      */
     public long getDuration() {
         return duration;

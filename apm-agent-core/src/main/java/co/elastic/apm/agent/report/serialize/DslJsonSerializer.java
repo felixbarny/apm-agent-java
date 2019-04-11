@@ -47,6 +47,7 @@ import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.SpanCount;
 import co.elastic.apm.agent.impl.transaction.TraceContext;
 import co.elastic.apm.agent.impl.transaction.Transaction;
+import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.util.PotentiallyMultiValuedMap;
 import com.dslplatform.json.BoolConverter;
@@ -731,10 +732,6 @@ public class DslJsonSerializer implements PayloadSerializer {
         }
     }
 
-    static void serializeStringLabels(Iterator<? extends Map.Entry<String, String>> iterator, StringBuilder replaceBuilder, JsonWriter jw) {
-        serializeLabels(iterator, replaceBuilder, jw);
-    }
-
     private static void serializeLabels(Iterator<? extends Map.Entry<String, ?>> it, StringBuilder replaceBuilder, JsonWriter jw) {
         jw.writeByte(OBJECT_START);
         if (it.hasNext()) {
@@ -748,6 +745,22 @@ public class DslJsonSerializer implements PayloadSerializer {
                 writeStringValue(sanitizeLabelKey(kv.getKey(), replaceBuilder), replaceBuilder, jw);
                 jw.writeByte(JsonWriter.SEMI);
                 serializeLabelValue(replaceBuilder, jw, kv.getValue());
+            }
+        }
+        jw.writeByte(OBJECT_END);
+    }
+
+    static void serializeLabels(Labels labels, StringBuilder replaceBuilder, JsonWriter jw) {
+        jw.writeByte(OBJECT_START);
+        if (!labels.isEmpty()) {
+            writeStringValue(sanitizeLabelKey(labels.getKey(0), replaceBuilder), replaceBuilder, jw);
+            jw.writeByte(JsonWriter.SEMI);
+            serializeLabelValue(replaceBuilder, jw, labels.getValue(0));
+            for (int i = 0; i < labels.size(); i++) {
+                jw.writeByte(COMMA);
+                writeStringValue(sanitizeLabelKey(labels.getKey(i), replaceBuilder), replaceBuilder, jw);
+                jw.writeByte(JsonWriter.SEMI);
+                serializeLabelValue(replaceBuilder, jw, labels.getValue(i));
             }
         }
         jw.writeByte(OBJECT_END);

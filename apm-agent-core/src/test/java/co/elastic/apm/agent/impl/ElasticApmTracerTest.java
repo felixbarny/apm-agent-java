@@ -346,9 +346,9 @@ class ElasticApmTracerTest {
         transaction.end(30);
 
         assertThat(transaction.getTimestamp()).isEqualTo(0);
-        assertThat(transaction.getDuration()).isEqualTo(3);
+        assertThat(transaction.getDuration()).isEqualTo(30);
         assertThat(span.getTimestamp()).isEqualTo(10);
-        assertThat(span.getDuration()).isEqualTo(1);
+        assertThat(span.getDuration()).isEqualTo(10);
     }
 
     @Test

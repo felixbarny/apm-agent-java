@@ -63,7 +63,7 @@ class OpenTracingBridgeTest extends AbstractInstrumentationTest {
         span.finish(TimeUnit.MILLISECONDS.toMicros(1));
 
         assertThat(reporter.getTransactions()).hasSize(1);
-        assertThat(reporter.getFirstTransaction().getDuration()).isEqualTo(1);
+        assertThat(reporter.getFirstTransaction().getDuration()).isEqualTo(1000);
         assertThat(reporter.getFirstTransaction().getName().toString()).isEqualTo("test");
     }
 

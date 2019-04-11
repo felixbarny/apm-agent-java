@@ -35,6 +35,7 @@ import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.TraceContext;
 import co.elastic.apm.agent.impl.transaction.TraceContextHolder;
 import co.elastic.apm.agent.impl.transaction.Transaction;
+import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.metrics.Timer;
 import co.elastic.apm.agent.objectpool.Allocator;
@@ -53,7 +54,6 @@ import org.stagemonitor.configuration.ConfigurationRegistry;
 import javax.annotation.Nullable;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -359,16 +359,21 @@ public class ElasticApmTracer {
 
     // TODO move to transaction end listener
     private void trackMetrics(Transaction transaction) {
-        final String transactionName = transaction.getName().toString();
+        final String type = transaction.getType();
+        if (type == null) {
+            return;
+        }
+        final StringBuilder transactionName = transaction.getName();
+        final Labels labels = new Labels();
         for (Map.Entry<String, Timer> entry : transaction.getSpanTimings().entrySet()) {
-            // TODO create Tags class which can take a CharSequence as a value
             final Timer timer = entry.getValue();
             if (timer.getCount() > 0) {
-                final Map<String, String> tags = new HashMap<>();
-                tags.put("transaction.name", transactionName);
-                tags.put("transaction.type", transaction.getType());
-                tags.put("span.type", entry.getKey());
-                metricRegistry.timer("self_time", tags).update(timer.getTotalTimeNs(), timer.getCount());
+                labels.resetState();
+                labels.add("transaction.name", transactionName)
+                    .add("transaction.type", type)
+                    .add("span.type", entry.getKey());
+                metricRegistry.timer("self_time", labels).update(timer.getTotalTimeNs(), timer.getCount());
+                timer.resetState();
             }
         }
     }
@@ -378,7 +383,7 @@ public class ElasticApmTracer {
         if (span.isSampled()) {
             long spanFramesMinDurationMs = stacktraceConfiguration.getSpanFramesMinDurationMs();
             if (spanFramesMinDurationMs != 0 && span.isSampled()) {
-                if (span.getDuration() >= spanFramesMinDurationMs) {
+                if (span.getDurationMs() >= spanFramesMinDurationMs) {
                     span.withStacktrace(new Throwable());
                 }
             }

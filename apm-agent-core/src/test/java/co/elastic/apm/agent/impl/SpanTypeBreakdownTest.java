@@ -25,12 +25,12 @@ import co.elastic.apm.agent.impl.sampling.ConstantSampler;
 import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.TraceContext;
 import co.elastic.apm.agent.impl.transaction.Transaction;
+import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.Timer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import javax.annotation.Nonnull;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -178,6 +178,6 @@ class SpanTypeBreakdownTest {
 
     @Nonnull
     private Timer getSelfTimer(String spanType) {
-        return tracer.getMetricRegistry().timer("self_time", Map.of("span.type", spanType, "transaction.type", "request", "transaction.name", "test transaction"));
+        return tracer.getMetricRegistry().timer("self_time", Labels.of("transaction.name", "test transaction").add("transaction.type", "request").add("span.type", spanType));
     }
 }

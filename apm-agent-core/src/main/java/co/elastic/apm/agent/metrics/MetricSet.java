@@ -38,12 +38,12 @@ import java.util.concurrent.ConcurrentMap;
  * </pre>
  */
 public class MetricSet {
-    private final Map<String, String> labels;
+    private final Labels labels;
     private final ConcurrentMap<String, DoubleSupplier> gauges = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Timer> timers = new ConcurrentHashMap<>();
     private volatile boolean hasNonEmptyTimer;
 
-    public MetricSet(Map<String, String> labels) {
+    public MetricSet(Labels labels) {
         this.labels = labels;
     }
 
@@ -55,7 +55,7 @@ public class MetricSet {
         return gauges.get(name);
     }
 
-    public Map<String, String> getLabels() {
+    public Labels getLabels() {
         return labels;
     }
 
