@@ -178,6 +178,6 @@ class SpanTypeBreakdownTest {
 
     @Nonnull
     private Timer getSelfTimer(String spanType) {
-        return tracer.getMetricRegistry().timer("self_time", Labels.of("transaction.name", "test transaction").add("transaction.type", "request").add("span.type", spanType));
+        return tracer.getMetricRegistry().timer("self_time", Labels.of().transactionName("test transaction").transactionType("request").spanType(spanType));
     }
 }

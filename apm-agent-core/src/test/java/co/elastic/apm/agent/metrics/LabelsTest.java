@@ -37,6 +37,12 @@ class LabelsTest {
             Labels.of("foo", "bar"),
             Labels.of("foo", "bar"));
         assertEqualsHashCode(
+            Labels.of().transactionName("foo"),
+            Labels.of().transactionName("foo"));
+        assertEqualsHashCode(
+            Labels.of().transactionName("foo"),
+            Labels.of().transactionName(new StringBuilder("foo")));
+        assertEqualsHashCode(
             Labels.of("foo", "bar"),
             Labels.of("foo", new StringBuilder("bar")));
         assertEqualsHashCode(
@@ -63,16 +69,19 @@ class LabelsTest {
     @Test
     void testImmutable() {
         assertThatThrownBy(() -> Labels.of("foo", "bar").immutableCopy().add("bar", "baz")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> Labels.of("foo", "bar").immutableCopy().transactionName("bar")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> Labels.of("foo", "bar").immutableCopy().transactionType("bar")).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> Labels.of("foo", "bar").immutableCopy().spanType("bar")).isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
     void testRecycle() {
-        final Labels resetLabels = Labels.of("foo", "bar");
+        final Labels resetLabels = Labels.of("foo", "bar").transactionName(new StringBuilder("baz"));
         final Labels immutableLabels = resetLabels.immutableCopy();
         resetLabels.resetState();
         assertEqualsHashCode(
             immutableLabels,
-            Labels.of("foo", "bar"));
+            Labels.of("foo", "bar").transactionName("baz"));
         assertNotEqual(resetLabels, immutableLabels);
         assertEqualsHashCode(resetLabels, new Labels());
     }

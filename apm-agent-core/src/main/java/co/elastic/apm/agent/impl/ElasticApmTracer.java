@@ -369,9 +369,9 @@ public class ElasticApmTracer {
             final Timer timer = entry.getValue();
             if (timer.getCount() > 0) {
                 labels.resetState();
-                labels.add("transaction.name", transactionName)
-                    .add("transaction.type", type)
-                    .add("span.type", entry.getKey());
+                labels.transactionName(transactionName)
+                    .transactionType(type)
+                    .spanType(entry.getKey());
                 metricRegistry.timer("self_time", labels).update(timer.getTotalTimeNs(), timer.getCount());
                 timer.resetState();
             }

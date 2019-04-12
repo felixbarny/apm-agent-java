@@ -46,7 +46,7 @@ public class MetricRegistry {
     }
 
     /**
-     * Same as {@link #add(String, Map, DoubleSupplier)} but only adds the metric
+     * Same as {@link #add(String, Labels, DoubleSupplier)} but only adds the metric
      * if the {@link DoubleSupplier} does not return {@link Double#NaN}
      *
      * @param name   the name of the metric
@@ -55,7 +55,7 @@ public class MetricRegistry {
      *               Note that there will be a {@link MetricSet} created for each distinct set of labels.
      * @param metric this supplier will be called for every reporting cycle
      *               ({@link co.elastic.apm.agent.report.ReporterConfiguration#metricsInterval metrics_interval)})
-     * @see #add(String, Map, DoubleSupplier)
+     * @see #add(String, Labels, DoubleSupplier)
      */
     public void addUnlessNan(String name, Labels labels, DoubleSupplier metric) {
         if (isDisabled(name)) {
@@ -67,7 +67,7 @@ public class MetricRegistry {
     }
 
     /**
-     * Same as {@link #add(String, Map, DoubleSupplier)} but only adds the metric
+     * Same as {@link #add(String, Labels, DoubleSupplier)} but only adds the metric
      * if the {@link DoubleSupplier} returns a positive number or zero.
      *
      * @param name   the name of the metric
@@ -76,7 +76,7 @@ public class MetricRegistry {
      *               Note that there will be a {@link MetricSet} created for each distinct set of labels.
      * @param metric this supplier will be called for every reporting cycle
      *               ({@link co.elastic.apm.agent.report.ReporterConfiguration#metricsInterval metrics_interval)})
-     * @see #add(String, Map, DoubleSupplier)
+     * @see #add(String, Labels, DoubleSupplier)
      */
     public void addUnlessNegative(String name, Labels labels, DoubleSupplier metric) {
         if (isDisabled(name)) {

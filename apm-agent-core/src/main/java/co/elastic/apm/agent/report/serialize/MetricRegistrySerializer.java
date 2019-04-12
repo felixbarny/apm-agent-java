@@ -53,13 +53,7 @@ public class MetricRegistrySerializer {
                 DslJsonSerializer.writeFieldName("timestamp", jw);
                 NumberConverter.serialize(epochMicros, jw);
                 jw.writeByte(JsonWriter.COMMA);
-
-                if (!metricSet.getLabels().isEmpty()) {
-                    DslJsonSerializer.writeFieldName("tags", jw);
-                    DslJsonSerializer.serializeLabels(metricSet.getLabels(), replaceBuilder, jw);
-                    jw.writeByte(JsonWriter.COMMA);
-                }
-
+                DslJsonSerializer.serializeLabels(metricSet.getLabels(), replaceBuilder, jw);
                 DslJsonSerializer.writeFieldName("samples", jw);
                 jw.writeByte(JsonWriter.OBJECT_START);
                 final boolean hasSamples = serializeGauges(metricSet.getGauges(), jw);

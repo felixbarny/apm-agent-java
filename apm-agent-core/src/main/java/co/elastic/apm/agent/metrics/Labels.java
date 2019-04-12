@@ -21,25 +21,39 @@ package co.elastic.apm.agent.metrics;
 
 import co.elastic.apm.agent.objectpool.Recyclable;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class Labels implements Recyclable {
 
-    private static final Labels EMPTY = new Labels().immutableCopy();
-    private final List<String> keys;
-    private final List<CharSequence> values;
+    private static final Labels EMPTY = Labels.of().immutableCopy();
+    private final List<String> keys = new ArrayList<>();
+    private final List<CharSequence> values = new ArrayList<>();
+    private final boolean immutable;
+    @Nullable
+    private CharSequence transactionName;
+    @Nullable
+    private String transactionType;
+    @Nullable
+    private String spanType;
     private int cachedHash;
 
     public Labels() {
-        this(new ArrayList<String>(), new ArrayList<CharSequence>());
+        this(Collections.emptyList(), Collections.emptyList(), false);
     }
 
-    Labels(List<String> keys, List<CharSequence> values) {
-        this.keys = keys;
-        this.values = values;
+    private Labels(List<String> keys, List<? extends CharSequence> values, boolean immutable) {
+        this.keys.addAll(keys);
+        this.values.addAll(values);
+        this.immutable = immutable;
+    }
+
+    public static Labels of() {
+        return new Labels();
     }
 
     public static Labels of(String key, CharSequence value) {
@@ -61,19 +75,60 @@ public class Labels implements Recyclable {
     }
 
     public Labels add(String key, CharSequence value) {
+        assertMutable();
         keys.add(key);
         values.add(value);
         return this;
     }
 
-    public Labels immutableCopy() {
-        List<String> newKeys = new ArrayList<>(keys.size());
-        List<CharSequence> newValues = new ArrayList<>(values.size());
-        for (int i = 0; i < keys.size(); i++) {
-            newKeys.add(keys.get(i));
-            newValues.add(values.get(i).toString());
+    public Labels transactionName(CharSequence transactionName) {
+        assertMutable();
+        this.transactionName = transactionName;
+        return this;
+    }
+
+    public Labels transactionType(String transactionType) {
+        assertMutable();
+        this.transactionType = transactionType;
+        return this;
+    }
+
+    public Labels spanType(String spanType) {
+        assertMutable();
+        this.spanType = spanType;
+        return this;
+    }
+
+    private void assertMutable() {
+        if (immutable) {
+            throw new UnsupportedOperationException("This Labels instance is immutable");
         }
-        final Labels labels = new Labels(Collections.unmodifiableList(newKeys), Collections.unmodifiableList(newValues));
+    }
+
+    @Nullable
+    public CharSequence getTransactionName() {
+        return transactionName;
+    }
+
+    @Nullable
+    public String getTransactionType() {
+        return transactionType;
+    }
+
+    @Nullable
+    public String getSpanType() {
+        return spanType;
+    }
+
+    public Labels immutableCopy() {
+        List<String> immutableValues = new ArrayList<>(values.size());
+        for (int i = 0; i < keys.size(); i++) {
+            immutableValues.add(values.get(i).toString());
+        }
+        final Labels labels = new Labels(keys, immutableValues, true);
+        labels.transactionName = this.transactionName != null ? this.transactionName.toString() : null;
+        labels.transactionType = this.transactionType;
+        labels.spanType = this.spanType;
         labels.cachedHash = labels.hashCode();
         return labels;
     }
@@ -108,7 +163,10 @@ public class Labels implements Recyclable {
         if (o == null || getClass() != o.getClass()) return false;
         Labels labels = (Labels) o;
         return keys.equals(labels.keys) &&
-            isEqual(values, labels.values);
+            isEqual(values, labels.values) &&
+            contentEquals(transactionName, labels.transactionName) &&
+            Objects.equals(transactionType, labels.transactionType) &&
+            Objects.equals(spanType, labels.spanType);
     }
 
     @Override
@@ -120,6 +178,9 @@ public class Labels implements Recyclable {
         for (int i = 0; i < values.size(); i++) {
             h = 31 * h + hash(i);
         }
+        h = 31 * h + hash(transactionName);
+        h = 31 * h + Objects.hashCode(transactionType);
+        h = 31 * h + Objects.hashCode(spanType);
         return h;
     }
 
@@ -152,7 +213,10 @@ public class Labels implements Recyclable {
         return true;
     }
 
-    private static boolean contentEquals(CharSequence cs1, CharSequence cs2) {
+    private static boolean contentEquals(@Nullable CharSequence cs1, @Nullable CharSequence cs2) {
+        if (cs1 == null || cs2 == null) {
+            return cs1 == cs2;
+        }
         if (cs1 instanceof String) {
             return ((String) cs1).contentEquals(cs2);
         } else if (cs2 instanceof String) {
@@ -170,7 +234,10 @@ public class Labels implements Recyclable {
         return false;
     }
 
-    static int hash(CharSequence cs) {
+    static int hash(@Nullable CharSequence cs) {
+        if (cs == null) {
+            return 0;
+        }
         // this is safe as the hash code calculation is well defined
         // (see javadoc for String.hashCode())
         if (cs instanceof String) return cs.hashCode();
@@ -185,5 +252,8 @@ public class Labels implements Recyclable {
     public void resetState() {
         keys.clear();
         values.clear();
+        transactionName = null;
+        transactionType = null;
+        spanType = null;
     }
 }
