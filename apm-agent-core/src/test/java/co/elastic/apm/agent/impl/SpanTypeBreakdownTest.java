@@ -46,9 +46,9 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction            ]
-     * `---------[db span  ]
-     * 0         10        20        30
+     * ██████████░░░░░░░░░░██████████
+     * ╰─────────██████████
+     *          10        20        30
      */
     @Test
     void testBreakdown_singleDbSpan() {
@@ -65,10 +65,10 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction           ]
-     * +---------[db span  ]
-     * `---------[db span  ]
-     * 0         10        20        30
+     * ██████████░░░░░░░░░░██████████
+     * ├─────────██████████
+     * ╰─────────██████████
+     *          10        20        30
      */
     @Test
     void testBreakdown_concurrentDbSpans_fullyOverlapping() {
@@ -88,10 +88,10 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction            ]
-     * +---------[db span  ]
-     * `--------------[db span  ]
-     * 0         10        20        30
+     * ██████████░░░░░░░░░░░░░░░█████
+     * ├─────────██████████
+     * ╰──────────────██████████
+     *          10        20        30
      */
     @Test
     void testBreakdown_concurrentDbSpans_partiallyOverlapping() {
@@ -111,10 +111,10 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction            ]
-     * +----[db span  ]
-     * `--------------[db span  ]
-     * 0         10        20        30
+     * █████░░░░░░░░░░░░░░░░░░░░█████
+     * ├────██████████
+     * ╰──────────────██████████
+     *          10        20        30
      */
     @Test
     void testBreakdown_serialDbSpans_notOverlapping() {
@@ -132,10 +132,10 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction            ]
-     * +---------[app span ]
-     *  `-------------[db span  ]
-     * 0         10        20        30
+     * ██████████░░░░░░░░░░██████████
+     * ╰─────────█████░░░░░
+     *           ╰────█████░░░░░
+     *          10        20        30
      */
     @Test
     void testBreakdown_asyncGrandchildExceedsChild() {
@@ -157,9 +157,9 @@ class SpanTypeBreakdownTest {
     }
 
     /*
-     * [ test transaction  ]
-     * `---------[db span            ]
-     * 0         10        20        30
+     * ██████████░░░░░░░░░░
+     * ╰─────────██████████░░░░░░░░░░
+     *          10        20        30
      */
     @Test
     void testBreakdown_singleDbSpan_exceedingParent() {
@@ -173,7 +173,7 @@ class SpanTypeBreakdownTest {
         assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
         assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(10);
         assertThat(getSelfTimer("db").getCount()).isEqualTo(1);
-        assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(10);
+        assertThat(getSelfTimer("db").getTotalTimeNs()).isEqualTo(10);
     }
 
     @Nonnull
