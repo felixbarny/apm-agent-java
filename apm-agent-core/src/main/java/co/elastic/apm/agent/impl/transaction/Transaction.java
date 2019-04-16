@@ -22,7 +22,10 @@ package co.elastic.apm.agent.impl.transaction;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.context.TransactionContext;
 import co.elastic.apm.agent.impl.sampling.Sampler;
+import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.util.Map;
@@ -33,6 +36,8 @@ import java.util.concurrent.ConcurrentMap;
  * Data captured by an agent representing an event occurring in a monitored service
  */
 public class Transaction extends AbstractSpan<Transaction> {
+
+    private static final Logger logger = LoggerFactory.getLogger(Transaction.class);
 
     public static final String TYPE_REQUEST = "request";
 
@@ -67,27 +72,7 @@ public class Transaction extends AbstractSpan<Transaction> {
         super(tracer);
     }
 
-    public void onSpanEnd(Span span) {
-        final String type = span.getType();
-        if (type != null) {
-            incrementTimer(type, span.getSelfDuration());
-        }
-    }
-
-    void incrementTimer(String type, long duration) {
-        Timer timer = spanTimings.get(type);
-        if (timer == null) {
-            timer = new Timer();
-            Timer racyTimer = spanTimings.putIfAbsent(type, timer);
-            if (racyTimer != null) {
-                timer = racyTimer;
-            }
-        }
-        timer.update(duration);
-    }
-
     public <T> Transaction start(TraceContext.ChildContextCreator<T> childContextCreator, @Nullable T parent, long epochMicros, Sampler sampler) {
-        onStart();
         if (parent == null || !childContextCreator.asChildOf(traceContext, parent)) {
             traceContext.asRootSpan(sampler);
         }
@@ -96,13 +81,14 @@ public class Transaction extends AbstractSpan<Transaction> {
         } else {
             setStartTimestamp(traceContext.getClock().getEpochMicros());
         }
+        onAfterStart();
         return this;
     }
 
     public Transaction startNoop() {
-        onStart();
         this.name.append("noop");
         this.noop = true;
+        onAfterStart();
         return this;
     }
 
@@ -197,6 +183,7 @@ public class Transaction extends AbstractSpan<Transaction> {
             type = "custom";
         }
         context.onTransactionEnd();
+        trackMetrics();
         this.tracer.endTransaction(this);
     }
 
@@ -216,13 +203,6 @@ public class Transaction extends AbstractSpan<Transaction> {
         spanCount.resetState();
         noop = false;
         type = null;
-        for (Map.Entry<String, Timer> entry : spanTimings.entrySet()) {
-            entry.getValue().resetState();
-        }
-    }
-
-    public void recycle() {
-        tracer.recycle(this);
     }
 
     public boolean isNoop() {
@@ -237,5 +217,57 @@ public class Transaction extends AbstractSpan<Transaction> {
     @Override
     public String toString() {
         return String.format("'%s' %s", name, traceContext);
+    }
+
+    @Override
+    public void incrementReferences() {
+        super.incrementReferences();
+    }
+
+    public void decrementReferences() {
+        final int referenceCount = this.references.decrementAndGet();
+        logger.trace("decrement references to {} ({})", this, referenceCount);
+        if (referenceCount == 0) {
+            tracer.recycle(this);
+        }
+    }
+
+    void incrementTimer(@Nullable String type, long duration) {
+        if (type != null && !finished) {
+            Timer timer = spanTimings.get(type);
+            if (timer == null) {
+                timer = new Timer();
+                Timer racyTimer = spanTimings.putIfAbsent(type, timer);
+                if (racyTimer != null) {
+                    timer = racyTimer;
+                }
+            }
+            timer.update(duration);
+            if (finished) {
+                // in case end()->trackMetrics() has been called concurrently
+                // don't leak timers
+                timer.resetState();
+            }
+        }
+    }
+
+    private void trackMetrics() {
+        final String type = getType();
+        if (type == null) {
+            return;
+        }
+        final StringBuilder transactionName = getName();
+        final Labels labels = new Labels();
+        for (Map.Entry<String, Timer> entry : getSpanTimings().entrySet()) {
+            final Timer timer = entry.getValue();
+            if (timer.getCount() > 0) {
+                labels.resetState();
+                labels.transactionName(transactionName)
+                    .transactionType(type)
+                    .spanType(entry.getKey());
+                tracer.getMetricRegistry().timer("self_time", labels).update(timer.getTotalTimeNs(), timer.getCount());
+                timer.resetState();
+            }
+        }
     }
 }

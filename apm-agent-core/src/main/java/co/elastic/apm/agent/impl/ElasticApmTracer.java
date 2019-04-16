@@ -35,9 +35,7 @@ import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.TraceContext;
 import co.elastic.apm.agent.impl.transaction.TraceContextHolder;
 import co.elastic.apm.agent.impl.transaction.Transaction;
-import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.MetricRegistry;
-import co.elastic.apm.agent.metrics.Timer;
 import co.elastic.apm.agent.objectpool.Allocator;
 import co.elastic.apm.agent.objectpool.ObjectPool;
 import co.elastic.apm.agent.objectpool.impl.QueueBasedObjectPool;
@@ -56,7 +54,6 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Callable;
 
 import static org.jctools.queues.spec.ConcurrentQueueSpec.createBoundedMpmc;
@@ -215,7 +212,7 @@ public class ElasticApmTracer {
         if (!coreConfiguration.isActive()) {
             transaction = noopTransaction();
         } else {
-            transaction = transactionPool.createInstance().start(childContextCreator, parent, epochMicros, sampler);
+            transaction = createTransaction().start(childContextCreator, parent, epochMicros, sampler);
         }
         if (logger.isDebugEnabled()) {
             logger.debug("startTransaction {} {", transaction);
@@ -232,7 +229,16 @@ public class ElasticApmTracer {
     }
 
     public Transaction noopTransaction() {
-        return transactionPool.createInstance().startNoop();
+        return createTransaction().startNoop();
+    }
+
+    private Transaction createTransaction() {
+        Transaction transaction = transactionPool.createInstance();
+        while (transaction.getReferenceCount() != 0) {
+            logger.warn("Tried to start a transaction with a non-zero reference count {} {}", transaction.getReferenceCount(), transaction);
+            transaction = transactionPool.createInstance();
+        }
+        return transaction;
     }
 
     @Nullable
@@ -275,7 +281,7 @@ public class ElasticApmTracer {
      * @see #startSpan(TraceContext.ChildContextCreator, Object)
      */
     public <T> Span startSpan(TraceContext.ChildContextCreator<T> childContextCreator, T parentContext, long epochMicros) {
-        Span span = spanPool.createInstance();
+        Span span = createSpan();
         final boolean dropped;
         Transaction transaction = currentTransaction();
         if (transaction != null) {
@@ -290,6 +296,15 @@ public class ElasticApmTracer {
             dropped = false;
         }
         span.start(childContextCreator, parentContext, epochMicros, dropped);
+        return span;
+    }
+
+    private Span createSpan() {
+        Span span = spanPool.createInstance();
+        while (span.getReferenceCount() != 0) {
+            logger.warn("Tried to start a span with a non-zero reference count {} {}", span.getReferenceCount(), span);
+            span = spanPool.createInstance();
+        }
         return span;
     }
 
@@ -348,33 +363,11 @@ public class ElasticApmTracer {
                     new RuntimeException("this exception is just used to record where the transaction has been ended from"));
             }
         }
-        trackMetrics(transaction);
         if (!transaction.isNoop()) {
             // we do report non-sampled transactions (without the context)
             reporter.report(transaction);
         } else {
-            transaction.recycle();
-        }
-    }
-
-    // TODO move to transaction end listener
-    private void trackMetrics(Transaction transaction) {
-        final String type = transaction.getType();
-        if (type == null) {
-            return;
-        }
-        final StringBuilder transactionName = transaction.getName();
-        final Labels labels = new Labels();
-        for (Map.Entry<String, Timer> entry : transaction.getSpanTimings().entrySet()) {
-            final Timer timer = entry.getValue();
-            if (timer.getCount() > 0) {
-                labels.resetState();
-                labels.transactionName(transactionName)
-                    .transactionType(type)
-                    .spanType(entry.getKey());
-                metricRegistry.timer("self_time", labels).update(timer.getTotalTimeNs(), timer.getCount());
-                timer.resetState();
-            }
+            transaction.decrementReferences();
         }
     }
 
@@ -389,7 +382,7 @@ public class ElasticApmTracer {
             }
             reporter.report(span);
         } else {
-            span.recycle();
+            span.decrementReferences();
         }
     }
 
@@ -502,12 +495,6 @@ public class ElasticApmTracer {
         }
         final Deque<TraceContextHolder<?>> stack = activeStack.get();
         assertIsActive(holder, stack.poll());
-        if (holder == stack.peekLast()) {
-            // if this is the bottom of the stack
-            // clear to avoid potential leaks in case some spans didn't deactivate properly
-            // makes all leaked spans eligible for GC
-            stack.clear();
-        }
     }
 
     private void assertIsActive(Object span, @Nullable Object currentlyActive) {

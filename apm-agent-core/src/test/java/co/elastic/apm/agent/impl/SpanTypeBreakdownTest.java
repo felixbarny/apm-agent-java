@@ -24,6 +24,7 @@ import co.elastic.apm.agent.MockTracer;
 import co.elastic.apm.agent.impl.sampling.ConstantSampler;
 import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.TraceContext;
+import co.elastic.apm.agent.impl.transaction.TraceContextHolder;
 import co.elastic.apm.agent.impl.transaction.Transaction;
 import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.Timer;
@@ -43,6 +44,20 @@ class SpanTypeBreakdownTest {
     void setUp() {
         reporter = new MockReporter();
         tracer = MockTracer.createRealTracer(reporter);
+    }
+
+    /*
+     * ██████████████████████████████
+     *          10        20        30
+     */
+    @Test
+    void testBreakdown_noSpans() {
+        tracer.startTransaction(TraceContext.asRoot(), null, ConstantSampler.of(true), 0, getClass().getClassLoader())
+            .withName("test transaction")
+            .withType("request")
+            .end(30);
+        assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
+        assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(30);
     }
 
     /*
@@ -117,7 +132,7 @@ class SpanTypeBreakdownTest {
      *          10        20        30
      */
     @Test
-    void testBreakdown_serialDbSpans_notOverlapping() {
+    void testBreakdown_serialDbSpans_notOverlapping_withoutGap() {
         final Transaction transaction = tracer.startTransaction(TraceContext.asRoot(), null, ConstantSampler.of(true), 0, getClass().getClassLoader())
             .withName("test transaction")
             .withType("request");
@@ -132,9 +147,30 @@ class SpanTypeBreakdownTest {
     }
 
     /*
+     * ██████████░░░░░█████░░░░░█████
+     * ├─────────█████
+     * ╰───────────────────█████
+     *          10        20        30
+     */
+    @Test
+    void testBreakdown_serialDbSpans_notOverlapping_withGap() {
+        final Transaction transaction = tracer.startTransaction(TraceContext.asRoot(), null, ConstantSampler.of(true), 0, getClass().getClassLoader())
+            .withName("test transaction")
+            .withType("request");
+        transaction.createSpan(10).withType("db").end(15);
+        transaction.createSpan(20).withType("db").end(25);
+        transaction.end(30);
+
+        assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
+        assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(20);
+        assertThat(getSelfTimer("db").getCount()).isEqualTo(2);
+        assertThat(getSelfTimer("db").getTotalTimeNs()).isEqualTo(10);
+    }
+
+    /*
      * ██████████░░░░░░░░░░██████████
-     * ╰─────────█████░░░░░
-     *           ╰────█████░░░░░
+     * ╰─────────█████░░░░░ <- all child timers are force-stopped when a span finishes
+     *           ╰────██████████      <- does not influence the transaction's self-time as it's not a direct child
      *          10        20        30
      */
     @Test
@@ -153,12 +189,51 @@ class SpanTypeBreakdownTest {
         assertThat(getSelfTimer("app").getCount()).isEqualTo(1);
         assertThat(getSelfTimer("app").getTotalTimeNs()).isEqualTo(5);
         assertThat(getSelfTimer("db").getCount()).isEqualTo(1);
-        assertThat(getSelfTimer("db").getTotalTimeNs()).isEqualTo(5); // or should it be 10?
+        assertThat(getSelfTimer("db").getTotalTimeNs()).isEqualTo(10);
     }
 
     /*
+     * breakdowns are reported when the transaction ends
+     * any spans which outlive the transaction are not included in the breakdown
+     *                    v
      * ██████████░░░░░░░░░░
      * ╰─────────██████████░░░░░░░░░░
+     *           ╰─────────██████████
+     *          10        20        30
+     */
+    @Test
+    void testBreakdown_asyncGrandchildExceedsChildAndTransaction() {
+        final Transaction transaction = tracer.startTransaction(TraceContext.asRoot(), null, ConstantSampler.of(true), 0, getClass().getClassLoader())
+            .withName("test transaction")
+            .withType("request");
+        final Span app = transaction.createSpan(10).withType("app");
+        transaction.end(20);
+        reporter.decrementReferences();
+        final Span db = app.createSpan(20).withType("db");
+        app.end(30);
+        db.end(30);
+
+        assertThat(transaction.getSelfDuration()).isEqualTo(10);
+        assertThat(app.getSelfDuration()).isEqualTo(10);
+        assertThat(db.getSelfDuration()).isEqualTo(10);
+
+        reporter.decrementReferences();
+        assertThat(transaction.isReferenced()).isFalse();
+        assertThat(app.isReferenced()).isFalse();
+        assertThat(db.isReferenced()).isFalse();
+
+        assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
+        assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(10);
+        assertThat(getSelfTimer("app").getCount()).isEqualTo(0);
+        assertThat(getSelfTimer("db").getCount()).isEqualTo(0);
+    }
+
+    /*
+     * breakdowns are reported when the transaction ends
+     * any spans which outlive the transaction are not included in the breakdown
+     *                    v
+     * ██████████░░░░░░░░░░
+     * ╰─────────████████████████████
      *          10        20        30
      */
     @Test
@@ -170,10 +245,42 @@ class SpanTypeBreakdownTest {
         transaction.end(20);
         span.end(30);
 
+        // recycled transactions should not leak child timings
+        reporter.assertRecycledAfterDecrementingReferences();
+        assertThat(reporter.getFirstTransaction().getSpanTimings().get("db")).isNull();
+
         assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
         assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(10);
-        assertThat(getSelfTimer("db").getCount()).isEqualTo(1);
-        assertThat(getSelfTimer("db").getTotalTimeNs()).isEqualTo(10);
+        assertThat(getSelfTimer("db").getCount()).isEqualTo(0);
+    }
+
+    /*
+     * breakdowns are reported when the transaction ends
+     * any spans which outlive the transaction are not included in the breakdown
+     *          v
+     * ██████████
+     * ╰───────────────────██████████
+     *          10        20        30
+     */
+    @Test
+    void testBreakdown_spanStartedAfterParentEnded() {
+        final Transaction transaction = tracer.startTransaction(TraceContext.asRoot(), null, ConstantSampler.of(true), 0, getClass().getClassLoader())
+            .withName("test transaction")
+            .withType("request");
+        final Runnable runnable = transaction.withActive(() -> {
+            final TraceContextHolder<?> active = tracer.getActive();
+            assertThat(active).isSameAs(transaction);
+            assertThat(transaction.getTraceContext().getId().isEmpty()).isFalse();
+            active.createSpan(20).withType("db").end(30);
+        });
+        transaction.end(10);
+        runnable.run();
+
+        reporter.assertRecycledAfterDecrementingReferences();
+
+        assertThat(getSelfTimer("transaction").getCount()).isEqualTo(1);
+        assertThat(getSelfTimer("transaction").getTotalTimeNs()).isEqualTo(10);
+        assertThat(getSelfTimer("db").getCount()).isEqualTo(0);
     }
 
     @Nonnull

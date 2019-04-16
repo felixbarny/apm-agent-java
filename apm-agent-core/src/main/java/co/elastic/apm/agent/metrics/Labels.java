@@ -43,7 +43,7 @@ public class Labels implements Recyclable {
     private int cachedHash;
 
     public Labels() {
-        this(Collections.emptyList(), Collections.emptyList(), false);
+        this(Collections.<String>emptyList(), Collections.<CharSequence>emptyList(), false);
     }
 
     private Labels(List<String> keys, List<? extends CharSequence> values, boolean immutable) {

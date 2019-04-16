@@ -60,6 +60,8 @@ public abstract class TraceContextHolder<T extends TraceContextHolder> implement
 
     public abstract Span createSpan();
 
+    public abstract Span createSpan(long epochMicros);
+
     public abstract boolean isChildOf(TraceContextHolder other);
 
     public T activate() {

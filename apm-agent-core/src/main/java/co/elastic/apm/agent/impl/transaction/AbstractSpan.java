@@ -25,8 +25,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,9 +35,6 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     protected static final double MS_IN_MICROS = TimeUnit.MILLISECONDS.toMicros(1);
     protected final TraceContext traceContext;
 
-    // used to mark this span as expected to switch lifecycle-managing-thread, eg span created by one thread and ended by another
-    private volatile boolean isLifecycleManagingThreadSwitch;
-
     /**
      * Generic designation of a transaction in the scope of a single service (eg: 'GET /users/:id')
      */
@@ -49,8 +44,12 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     // in microseconds
     protected long duration;
     protected ReentrantTimer childDurations = new ReentrantTimer();
-    // TODO make thread safe
-    private List<Span> runningChildSpans = new ArrayList<>();
+    protected AtomicInteger references = new AtomicInteger();
+    protected volatile boolean finished = true;
+
+    public int getReferenceCount() {
+        return references.get();
+    }
 
     public static class ReentrantTimer implements Recyclable {
 
@@ -58,14 +57,34 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         private AtomicLong start = new AtomicLong();
         private AtomicLong duration = new AtomicLong();
 
+        /**
+         * Starts the timer if it has not been started already.
+         *
+         * @param startTimestamp
+         */
         public void start(long startTimestamp) {
             if (nestingLevel.incrementAndGet() == 1) {
                 start.set(startTimestamp);
             }
         }
 
+        /**
+         * Stops the timer and increments the duration if no other direct children are still running
+         * @param endTimestamp
+         */
         public void stop(long endTimestamp) {
             if (nestingLevel.decrementAndGet() == 0) {
+                incrementDuration(endTimestamp);
+            }
+        }
+
+        /**
+         * Stops the timer and increments the duration even if there are direct children which are still running
+         *
+         * @param endTimestamp
+         */
+        public void forceStop(long endTimestamp) {
+            if (nestingLevel.getAndSet(0) != 0) {
                 incrementDuration(endTimestamp);
             }
         }
@@ -86,11 +105,13 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         }
     }
 
-    private volatile boolean finished = true;
-
     public AbstractSpan(ElasticApmTracer tracer) {
         super(tracer);
         traceContext = TraceContext.with64BitId(this.tracer);
+    }
+
+    public boolean isReferenced() {
+        return references.get() > 0;
     }
 
     /**
@@ -159,9 +180,9 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         name.setLength(0);
         timestamp = 0;
         duration = 0;
-        isLifecycleManagingThreadSwitch = false;
         traceContext.resetState();
         childDurations.resetState();
+        references.set(0);
     }
 
     public boolean isChildOf(AbstractSpan<?> parent) {
@@ -173,6 +194,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         return createSpan(traceContext.getClock().getEpochMicros());
     }
 
+    @Override
     public Span createSpan(long epochMicros) {
         final Span span = tracer.startSpan(this, epochMicros);
         onChildStart(span, epochMicros);
@@ -185,8 +207,15 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
 
     public abstract void addLabel(String key, Boolean value);
 
-    protected void onStart() {
+    /**
+     * Called after the span has been started and its parent references are set
+     */
+    protected void onAfterStart() {
         this.finished = false;
+        // this final reference is decremented when the span is reported
+        // or even after its reported and the last child span is ended
+        references.set(0);
+        incrementReferences();
     }
 
     public void end() {
@@ -195,17 +224,14 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
 
     public final void end(long epochMicros) {
         if (!finished) {
-            this.finished = true;
             this.duration = (epochMicros - timestamp);
             if (name.length() == 0) {
                 name.append("unnamed");
             }
-            // TODO beware of race conditions
-            for (int i = 0; i < runningChildSpans.size(); i++) {
-               runningChildSpans.get(i).onParentEnd(epochMicros);
-            }
-            runningChildSpans.clear();
+            childDurations.forceStop(epochMicros);
             doEnd(epochMicros);
+            // has to be set last so doEnd callbacks don't think it has already been finished
+            this.finished = true;
         } else {
             logger.warn("End has already been called: {}", this);
             assert false;
@@ -219,20 +245,19 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         return getTraceContext().isChildOf(other);
     }
 
-    public void markLifecycleManagingThreadSwitchExpected() {
-        isLifecycleManagingThreadSwitch = true;
+    @Override
+    public T activate() {
+        incrementReferences();
+        return super.activate();
     }
 
     @Override
-    public T activate() {
-        if (isLifecycleManagingThreadSwitch) {
-            // This serves two goals:
-            // 1. resets the lifecycle management flag, so that the executing thread will remain in charge until set otherwise
-            // by setting this flag once more
-            // 2. reading this volatile field when span is activated on a new thread ensures proper visibility of other span data
-            isLifecycleManagingThreadSwitch = false;
+    public T deactivate() {
+        try {
+            return super.deactivate();
+        } finally {
+            decrementReferences();
         }
-        return super.activate();
     }
 
     /**
@@ -245,11 +270,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
      */
     @Override
     public Runnable withActive(Runnable runnable) {
-        if (isLifecycleManagingThreadSwitch) {
-            return tracer.wrapRunnable(runnable, this);
-        } else {
-            return tracer.wrapRunnable(runnable, traceContext);
-        }
+        return tracer.wrapRunnable(runnable, this);
     }
 
     /**
@@ -262,11 +283,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
      */
     @Override
     public <V> Callable<V> withActive(Callable<V> callable) {
-        if (isLifecycleManagingThreadSwitch) {
-            return tracer.wrapCallable(callable, this);
-        } else {
-            return tracer.wrapCallable(callable, traceContext);
-        }
+        return tracer.wrapCallable(callable, this);
     }
 
     public void setStartTimestamp(long epochMicros) {
@@ -274,12 +291,20 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     }
 
     private void onChildStart(Span span, long epochMicros) {
-        runningChildSpans.add(span);
+        incrementReferences();
         childDurations.start(epochMicros);
     }
 
     void onChildEnd(Span span, long epochMicros) {
-        runningChildSpans.remove(span);
         childDurations.stop(epochMicros);
+        decrementReferences();
     }
+
+    public void incrementReferences() {
+        references.incrementAndGet();
+        logger.trace("increment references to {} ({})", this, references);
+    }
+
+    public abstract void decrementReferences();
+
 }
