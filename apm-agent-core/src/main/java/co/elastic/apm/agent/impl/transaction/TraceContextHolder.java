@@ -52,8 +52,18 @@ public abstract class TraceContextHolder<T extends TraceContextHolder> implement
 
     protected final ElasticApmTracer tracer;
 
+    /**
+     * Flag to mark a span as representing an exit event
+     */
+    private boolean isExit;
+
     protected TraceContextHolder(ElasticApmTracer tracer) {
         this.tracer = tracer;
+    }
+
+    public TraceContextHolder<T> asExit() {
+        isExit = true;
+        return this;
     }
 
     public abstract TraceContext getTraceContext();
@@ -61,6 +71,20 @@ public abstract class TraceContextHolder<T extends TraceContextHolder> implement
     public abstract Span createSpan();
 
     public abstract Span createSpan(long epochMicros);
+
+    /**
+     * Creates a child Span representing a remote call event, unless this TraceContextHolder already represents an exit event.
+     * If current TraceContextHolder is representing an Exit- returns null
+     *
+     * @return an Exit span if this TraceContextHolder is not an exit span, null othewise
+     */
+    @Nullable
+    public Span createExitSpan() {
+        if (isExit) {
+            return null;
+        }
+        return (Span) createSpan().asExit();
+    }
 
     public abstract boolean isChildOf(TraceContextHolder other);
 
@@ -112,6 +136,10 @@ public abstract class TraceContextHolder<T extends TraceContextHolder> implement
         return getTraceContext().isSampled();
     }
 
+    public boolean isExit() {
+        return isExit;
+    }
+
     public void captureException(long epochMicros, Throwable t) {
         tracer.captureException(epochMicros, t, this);
     }
@@ -133,4 +161,8 @@ public abstract class TraceContextHolder<T extends TraceContextHolder> implement
      */
     public abstract <V> Callable<V> withActive(Callable<V> callable);
 
+    @Override
+    public void resetState() {
+        isExit = false;
+    }
 }
