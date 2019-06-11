@@ -28,6 +28,7 @@ import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.context.AbstractContext;
 import co.elastic.apm.agent.matcher.WildcardMatcher;
 import co.elastic.apm.agent.objectpool.Recyclable;
+import co.elastic.apm.agent.objectpool.ThreadAware;
 import co.elastic.apm.agent.report.ReporterConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextHolder<T> {
+public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextHolder<T> implements ThreadAware {
     private static final Logger logger = LoggerFactory.getLogger(AbstractSpan.class);
     protected static final double MS_IN_MICROS = TimeUnit.MILLISECONDS.toMicros(1);
     protected final TraceContext traceContext;
@@ -55,6 +56,8 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
     protected ReentrantTimer childDurations = new ReentrantTimer();
     protected AtomicInteger references = new AtomicInteger();
     protected volatile boolean finished = true;
+    @Nullable
+    private volatile Thread initiatingThread;
 
     public int getReferenceCount() {
         return references.get();
@@ -118,6 +121,17 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         super(tracer);
         traceContext = TraceContext.with64BitId(this.tracer);
         collectBreakdownMetrics = !WildcardMatcher.isAnyMatch(tracer.getConfig(ReporterConfiguration.class).getDisableMetrics(), "span.self_time");
+    }
+
+    @Override
+    public void setThread(Thread thread) {
+        this.initiatingThread = thread;
+    }
+
+    @Nullable
+    @Override
+    public Thread getThread() {
+        return initiatingThread;
     }
 
     public boolean isReferenced() {
@@ -191,6 +205,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
         traceContext.resetState();
         childDurations.resetState();
         references.set(0);
+        initiatingThread = null;
     }
 
     public boolean isChildOf(AbstractSpan<?> parent) {
@@ -249,8 +264,7 @@ public abstract class AbstractSpan<T extends AbstractSpan> extends TraceContextH
             }
             childDurations.forceStop(epochMicros);
             doEnd(epochMicros);
-            // has to be set last so doEnd callbacks don't think it has already been finished
-            this.finished = true;
+
         } else {
             logger.warn("End has already been called: {}", this);
             assert false;

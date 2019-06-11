@@ -43,8 +43,7 @@ import java.util.concurrent.ThreadFactory;
 
 public class ReporterFactory {
 
-    public Reporter createReporter(ConfigurationRegistry configurationRegistry, @Nullable String frameworkName,
-                                   @Nullable String frameworkVersion) {
+    public Reporter createReporter(ConfigurationRegistry configurationRegistry, ReportingEventHandler reportingEventHandler) {
         final ReporterConfiguration reporterConfiguration = configurationRegistry.getConfig(ReporterConfiguration.class);
         ExecutorService healthCheckExecutorService = Executors.newFixedThreadPool(1, new ThreadFactory() {
             @Override
@@ -57,15 +56,14 @@ public class ReporterFactory {
         });
         healthCheckExecutorService.submit(new ApmServerHealthChecker(reporterConfiguration));
         healthCheckExecutorService.shutdown();
-        final ReportingEventHandler reportingEventHandler = getReportingEventHandler(configurationRegistry, frameworkName,
-            frameworkVersion, reporterConfiguration);
         return new ApmServerReporter(true, reporterConfiguration, reportingEventHandler);
     }
 
     @Nonnull
-    private ReportingEventHandler getReportingEventHandler(ConfigurationRegistry configurationRegistry, @Nullable String frameworkName,
-                                                           @Nullable String frameworkVersion, ReporterConfiguration reporterConfiguration) {
+    public ReportingEventHandler getReportingEventHandler(ConfigurationRegistry configurationRegistry, @Nullable String frameworkName,
+                                                          @Nullable String frameworkVersion) {
 
+        final ReporterConfiguration reporterConfiguration = configurationRegistry.getConfig(ReporterConfiguration.class);
         final DslJsonSerializer payloadSerializer = new DslJsonSerializer(
             configurationRegistry.getConfig(StacktraceConfiguration.class));
         final co.elastic.apm.agent.impl.payload.Service service = new ServiceFactory().createService(configurationRegistry.getConfig(CoreConfiguration.class), frameworkName, frameworkVersion);

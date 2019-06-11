@@ -111,7 +111,7 @@ public class ReportingEvent {
         return metricRegistry;
     }
 
-    enum ReportingEventType {
+    public enum ReportingEventType {
         FLUSH, TRANSACTION, SPAN, ERROR, METRICS, SHUTDOWN
     }
 }

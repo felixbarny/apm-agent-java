@@ -25,13 +25,15 @@
 package co.elastic.apm.agent.objectpool.impl;
 
 import co.elastic.apm.agent.objectpool.Allocator;
-import co.elastic.apm.agent.objectpool.Recyclable;
+import co.elastic.apm.agent.objectpool.ThreadAware;
+import com.blogspot.mydailyjava.weaklockfree.DetachedThreadLocal;
+import org.jctools.queues.MpscArrayQueue;
 
 import javax.annotation.Nullable;
 
-public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectPool<T> {
+public class ThreadLocalObjectPool<T extends ThreadAware> extends AbstractObjectPool<T> {
 
-    private final ThreadLocal<FixedSizeStack<T>> objectPool = new ThreadLocal<>();
+    private final DetachedThreadLocal<MpscArrayQueue<T>> objectPool = new DetachedThreadLocal<>(DetachedThreadLocal.Cleaner.INLINE);
     private final int maxNumPooledObjectsPerThread;
     private final boolean preAllocate;
 
@@ -44,25 +46,35 @@ public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectP
     @Override
     @Nullable
     public T tryCreateInstance() {
-        return getStack().pop();
+        return getStack(Thread.currentThread()).poll();
     }
 
     @Override
-    public void recycle(T obj) {
-        obj.resetState();
-        getStack().push(obj);
+    public T createInstance() {
+        T instance = super.createInstance();
+        instance.setThread(Thread.currentThread());
+        return instance;
+    }
+
+    @Override
+    public boolean recycle(T obj) {
+        Thread thread = obj.getThread();
+        if (thread != null) {
+            obj.resetState();
+            return getStack(thread).offer(obj);
+        } else {
+            return false;
+        }
     }
 
     @Override
     public int getObjectsInPool() {
-        return getStack().size();
+        return getStack(Thread.currentThread()).size();
     }
 
     @Override
     public void close() {
-        // only removes the entry of the current thread
-        // this could lead to class loader leaks
-        objectPool.remove();
+        objectPool.clearAll();
     }
 
     @Override
@@ -70,8 +82,8 @@ public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectP
         return maxNumPooledObjectsPerThread;
     }
 
-    private FixedSizeStack<T> getStack() {
-        FixedSizeStack<T> stack = objectPool.get();
+    private MpscArrayQueue<T> getStack(Thread thread) {
+        MpscArrayQueue<T> stack = objectPool.get(thread);
         if (stack == null) {
             stack = createStack(preAllocate);
             objectPool.set(stack);
@@ -79,11 +91,11 @@ public class ThreadLocalObjectPool<T extends Recyclable> extends AbstractObjectP
         return stack;
     }
 
-    private FixedSizeStack<T> createStack(boolean preAllocate) {
-        FixedSizeStack<T> stack = new FixedSizeStack<>(maxNumPooledObjectsPerThread);
+    private MpscArrayQueue<T> createStack(boolean preAllocate) {
+        MpscArrayQueue<T> stack = new MpscArrayQueue<>(maxNumPooledObjectsPerThread);
         if (preAllocate) {
             for (int i = 0; i < maxNumPooledObjectsPerThread; i++) {
-                stack.push(allocator.createInstance());
+                stack.offer(allocator.createInstance());
             }
         }
         return stack;

@@ -35,7 +35,7 @@ public interface ObjectPool<T> extends Closeable {
 
     void fillFromOtherPool(ObjectPool<T> otherPool, int maxElements);
 
-    void recycle(T obj);
+    boolean recycle(T obj);
 
     int getSize();
 

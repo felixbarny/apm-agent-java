@@ -35,4 +35,7 @@ public interface ReportingEventHandler extends EventHandler<ReportingEvent> {
     long getDropped();
 
     void close();
+
+    @Override
+    void onEvent(ReportingEvent event, long sequence, boolean endOfBatch);
 }

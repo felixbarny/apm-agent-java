@@ -43,10 +43,14 @@ import co.elastic.apm.agent.impl.transaction.Transaction;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.objectpool.Allocator;
 import co.elastic.apm.agent.objectpool.ObjectPool;
+import co.elastic.apm.agent.objectpool.impl.MixedObjectPool;
 import co.elastic.apm.agent.objectpool.impl.QueueBasedObjectPool;
+import co.elastic.apm.agent.objectpool.impl.ThreadLocalObjectPool;
+import co.elastic.apm.agent.processing.EventProcessor;
 import co.elastic.apm.agent.report.Reporter;
 import co.elastic.apm.agent.report.ReporterConfiguration;
 import co.elastic.apm.agent.util.DependencyInjectingServiceLoader;
+import co.elastic.apm.agent.util.ExecutorUtils;
 import com.blogspot.mydailyjava.weaklockfree.WeakConcurrentMap;
 import org.jctools.queues.atomic.AtomicQueueFactory;
 import org.slf4j.Logger;
@@ -61,6 +65,8 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import static org.jctools.queues.spec.ConcurrentQueueSpec.createBoundedMpmc;
 
@@ -114,6 +120,8 @@ public class ElasticApmTracer {
     private Sampler sampler;
     boolean assertionsEnabled = false;
     private static final WeakConcurrentMap<ClassLoader, String> serviceNameByClassLoader = new WeakConcurrentMap.WithInlinedExpunction<>();
+    @Nullable
+    private ScheduledThreadPoolExecutor metricsReportingScheduler;
 
     ElasticApmTracer(ConfigurationRegistry configurationRegistry, Reporter reporter, Iterable<LifecycleListener> lifecycleListeners) {
         this.metricRegistry = new MetricRegistry(configurationRegistry.getConfig(ReporterConfiguration.class));
@@ -186,10 +194,23 @@ public class ElasticApmTracer {
             lifecycleListener.start(this);
         }
         this.activationListeners = DependencyInjectingServiceLoader.load(ActivationListener.class, this);
-        reporter.scheduleMetricReporting(metricRegistry, configurationRegistry.getConfig(ReporterConfiguration.class).getMetricsIntervalMs());
+
+        scheduleMetricReporting(metricRegistry, configurationRegistry.getConfig(ReporterConfiguration.class).getMetricsIntervalMs());
 
         // sets the assertionsEnabled flag to true if indeed enabled
         assert assertionsEnabled = true;
+    }
+
+    private void scheduleMetricReporting(final MetricRegistry metricRegistry, long intervalMs) {
+        if (intervalMs > 0 && metricsReportingScheduler == null) {
+            metricsReportingScheduler = ExecutorUtils.createSingleThreadSchedulingDeamonPool("apm-metrics-reporter", 1);
+            metricsReportingScheduler.scheduleAtFixedRate(new Runnable() {
+                @Override
+                public void run() {
+                    reporter.reportMetrics(metricRegistry);
+                }
+            }, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        }
     }
 
     /**
@@ -386,12 +407,7 @@ public class ElasticApmTracer {
                     new RuntimeException("this exception is just used to record where the transaction has been ended from"));
             }
         }
-        if (!transaction.isNoop()) {
-            // we do report non-sampled transactions (without the context)
-            reporter.report(transaction);
-        } else {
-            transaction.decrementReferences();
-        }
+        reporter.report(transaction);
     }
 
     @SuppressWarnings("ReferenceEquality")
@@ -403,10 +419,8 @@ public class ElasticApmTracer {
                     span.withStacktrace(new Throwable());
                 }
             }
-            reporter.report(span);
-        } else {
-            span.decrementReferences();
         }
+        reporter.report(span);
     }
 
     public void recycle(Transaction transaction) {
@@ -473,6 +487,9 @@ public class ElasticApmTracer {
         try {
             configurationRegistry.close();
             reporter.close();
+            if (metricsReportingScheduler != null) {
+                metricsReportingScheduler.shutdown();
+            }
             transactionPool.close();
             spanPool.close();
             errorPool.close();

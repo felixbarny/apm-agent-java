@@ -77,7 +77,7 @@ public class IntakeV2ReportingEventHandler implements ReportingEventHandler {
     private final CyclicIterator<URL> serverUrlIterator;
     private Deflater deflater;
     private long currentlyTransmitting = 0;
-    private long reported = 0;
+    public static long reported = 0;
     private long dropped = 0;
     @Nullable
     private HttpURLConnection connection;

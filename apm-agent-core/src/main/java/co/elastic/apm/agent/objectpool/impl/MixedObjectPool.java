@@ -26,14 +26,22 @@ package co.elastic.apm.agent.objectpool.impl;
 
 import co.elastic.apm.agent.objectpool.Allocator;
 import co.elastic.apm.agent.objectpool.ObjectPool;
+import co.elastic.apm.agent.objectpool.ThreadAware;
+import org.jctools.queues.MpmcArrayQueue;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
 
-public class MixedObjectPool<T> extends AbstractObjectPool<T> {
+public class MixedObjectPool<T extends ThreadAware> extends AbstractObjectPool<T> {
 
     private final ObjectPool<T> primaryPool;
     private final ObjectPool<T> secondaryPool;
+
+    public static <T extends ThreadAware> MixedObjectPool<T> withThreadLocalBuffer(int threadLocalSize, int secondarySize, Allocator<T> allocator) {
+        return new MixedObjectPool<T>(allocator,
+            new ThreadLocalObjectPool<T>(threadLocalSize, false, allocator),
+            QueueBasedObjectPool.of(new MpmcArrayQueue<T>(secondarySize), false, allocator, Resetter.ForRecyclable.<T>get()));
+    }
 
     public MixedObjectPool(final Allocator<T> allocator, ObjectPool<T> primaryPool, ObjectPool<T> secondaryPool) {
         super(allocator);
@@ -41,23 +49,34 @@ public class MixedObjectPool<T> extends AbstractObjectPool<T> {
         this.secondaryPool = secondaryPool;
     }
 
-
     @Nullable
     @Override
     public T tryCreateInstance() {
         final T recyclable = primaryPool.tryCreateInstance();
-        if (recyclable == null) {
-            secondaryPool.fillFromOtherPool(primaryPool, primaryPool.getSize());
-            return primaryPool.tryCreateInstance();
+        if (recyclable != null) {
+            return recyclable;
         }
-        return recyclable;
+        return secondaryPool.createInstance();
     }
 
     @Override
-    public void recycle(T obj) {
-        secondaryPool.recycle(obj);
+    public T createInstance() {
+        T instance = super.createInstance();
+        instance.setThread(Thread.currentThread());
+        return instance;
     }
 
+    @Override
+    public boolean recycle(T obj) {
+        if (obj.getThread() == null) {
+            secondaryPool.recycle(obj);
+        } else {
+            if (!primaryPool.recycle(obj)) {
+                secondaryPool.recycle(obj);
+            }
+        }
+        return false;
+    }
 
     @Override
     public int getSize() {

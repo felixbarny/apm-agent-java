@@ -171,7 +171,8 @@ public class Transaction extends AbstractSpan<Transaction> {
         }
         context.onTransactionEnd();
         incrementTimer("app", null, getSelfDuration());
-        trackMetrics();
+        // has to be set last so doEnd callbacks don't think it has already been finished
+        this.finished = true;
         this.tracer.endTransaction(this);
     }
 
@@ -269,7 +270,7 @@ public class Transaction extends AbstractSpan<Transaction> {
         }
     }
 
-    private void trackMetrics() {
+    public void trackMetrics() {
         final String type = getType();
         if (type == null) {
             return;

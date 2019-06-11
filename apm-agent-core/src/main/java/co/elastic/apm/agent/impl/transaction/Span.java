@@ -212,6 +212,8 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
             parent.decrementReferences();
             parent.onChildEnd(epochMicros);
         }
+        // has to be set last so doEnd callbacks don't think it has already been finished
+        this.finished = true;
         this.tracer.endSpan(this);
     }
 

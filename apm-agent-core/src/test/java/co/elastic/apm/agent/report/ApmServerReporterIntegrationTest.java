@@ -31,13 +31,23 @@ import co.elastic.apm.agent.impl.error.ErrorCapture;
 import co.elastic.apm.agent.impl.payload.ProcessInfo;
 import co.elastic.apm.agent.impl.payload.Service;
 import co.elastic.apm.agent.impl.payload.SystemInfo;
+import co.elastic.apm.agent.impl.sampling.ConstantSampler;
 import co.elastic.apm.agent.impl.stacktrace.StacktraceConfiguration;
 import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.Transaction;
+import co.elastic.apm.agent.processing.ApmServerReporterProcessor;
+import co.elastic.apm.agent.processing.BreakdownMetricsEventProcessor;
+import co.elastic.apm.agent.processing.EventQueueWorker;
+import co.elastic.apm.agent.processing.JCToolsReporter;
 import co.elastic.apm.agent.report.processor.ProcessorEventHandler;
 import co.elastic.apm.agent.report.serialize.DslJsonSerializer;
+import co.elastic.apm.agent.util.ExecutorUtils;
+import co.elastic.apm.agent.util.queues.ExponentiallyIncreasingSleepingJCToolsWaitStrategy;
+import co.elastic.apm.agent.util.queues.MpscThreadLocalQueue;
+import com.blogspot.mydailyjava.weaklockfree.DetachedThreadLocal;
 import io.undertow.Undertow;
 import io.undertow.server.HttpHandler;
+import org.jctools.queues.SpscArrayQueue;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +72,7 @@ class ApmServerReporterIntegrationTest {
     private static HttpHandler handler;
     private final ElasticApmTracer tracer = MockTracer.create();
     private ReporterConfiguration reporterConfiguration;
-    private ApmServerReporter reporter;
+    private Reporter reporter;
     private ConfigurationRegistry config;
 
     @BeforeAll
@@ -101,7 +111,19 @@ class ApmServerReporterIntegrationTest {
         final ProcessorEventHandler processorEventHandler = ProcessorEventHandler.loadProcessors(config);
         final IntakeV2ReportingEventHandler v2handler = new IntakeV2ReportingEventHandler(service, title, system, reporterConfiguration,
             processorEventHandler, new DslJsonSerializer(mock(StacktraceConfiguration.class)), Collections.emptyMap());
-        reporter = new ApmServerReporter(false, reporterConfiguration, v2handler);
+//        reporter = new ApmServerReporter(false, reporterConfiguration, v2handler);
+        MpscThreadLocalQueue<Object> eventQueue = new MpscThreadLocalQueue<>(DetachedThreadLocal.Cleaner.INLINE, 128);
+        reporter = new JCToolsReporter(eventQueue);
+
+        ExponentiallyIncreasingSleepingJCToolsWaitStrategy waitStrategy = new ExponentiallyIncreasingSleepingJCToolsWaitStrategy(100_000, 10_000_000, "apm-event-processor");
+
+        SpscArrayQueue<Object> reporterQueue = new SpscArrayQueue<>(256);
+        EventQueueWorker eventQueueWorker = new EventQueueWorker(new BreakdownMetricsEventProcessor(reporterQueue), eventQueue, waitStrategy, new ExecutorUtils.NamedThreadFactory("apm-event-processor"));
+        eventQueueWorker.start();
+
+        ApmServerReporterProcessor reporterProcessor = new ApmServerReporterProcessor(v2handler);
+        EventQueueWorker reporterWorker = new EventQueueWorker(reporterProcessor, reporterQueue, waitStrategy, new ExecutorUtils.NamedThreadFactory("apm-reporter"));
+        reporterWorker.start();
     }
 
     @Test
@@ -114,7 +136,9 @@ class ApmServerReporterIntegrationTest {
 
     @Test
     void testReportSpan() throws ExecutionException, InterruptedException {
-        reporter.report(new Span(tracer));
+        Span span = new Span(tracer);
+        span.getTraceContext().asRootSpan(ConstantSampler.of(true));
+        reporter.report(span);
         reporter.flush().get();
         assertThat(reporter.getDropped()).isEqualTo(0);
         assertThat(receivedHttpRequests.get()).isEqualTo(1);

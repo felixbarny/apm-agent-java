@@ -52,8 +52,8 @@ public class NoopObjectPool<T extends Recyclable> implements ObjectPool<T> {
     }
 
     @Override
-    public void recycle(T obj) {
-
+    public boolean recycle(T obj) {
+        return false;
     }
 
     @Override

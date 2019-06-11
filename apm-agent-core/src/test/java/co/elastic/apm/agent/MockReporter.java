@@ -168,8 +168,8 @@ public class MockReporter implements Reporter {
     }
 
     @Override
-    public void scheduleMetricReporting(MetricRegistry metricRegistry, long intervalMs) {
-        // noop
+    public void reportMetrics(MetricRegistry metricRegistry) {
+
     }
 
     public synchronized Span getFirstSpan() {

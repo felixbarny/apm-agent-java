@@ -48,5 +48,5 @@ public interface Reporter extends Closeable {
 
     void report(ErrorCapture error);
 
-    void scheduleMetricReporting(MetricRegistry metricRegistry, long intervalMs);
+    void reportMetrics(MetricRegistry metricRegistry);
 }

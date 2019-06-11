@@ -69,9 +69,7 @@ public class ObjectPoolBenchmark extends AbstractBenchmark {
         jctoolsQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new MpmcArrayQueue<>(256), true, () -> new Transaction(tracer));
         jctoolsAtomicQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new MpmcAtomicArrayQueue<>(256), true, () -> new Transaction(tracer));
         agronaQueueObjectPool = QueueBasedObjectPool.ofRecyclable(new ManyToManyConcurrentArrayQueue<>(256), true, () -> new Transaction(tracer));
-        mixedObjectPool = new MixedObjectPool<>(() -> new Transaction(tracer),
-            new ThreadLocalObjectPool<>(256, true, () -> new Transaction(tracer)),
-            QueueBasedObjectPool.ofRecyclable(new ManyToManyConcurrentArrayQueue<>(256), true, () -> new Transaction(tracer)));
+        mixedObjectPool = MixedObjectPool.withThreadLocalBuffer(256, 256, () -> new Transaction(tracer));
         threadLocalObjectPool = new ThreadLocalObjectPool<>(64, true, () -> new Transaction(tracer));
     }
 
@@ -119,7 +117,7 @@ public class ObjectPoolBenchmark extends AbstractBenchmark {
         return transaction;
     }
 
-    //    @Benchmark
+    @Benchmark
     @Threads(8)
     public Transaction testMixedObjectPool() {
         Transaction transaction = mixedObjectPool.createInstance();

@@ -11,9 +11,9 @@
  * the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -32,8 +32,19 @@ import co.elastic.apm.agent.configuration.source.PropertyFileConfigurationSource
 import co.elastic.apm.agent.configuration.source.SystemPropertyConfigurationSource;
 import co.elastic.apm.agent.context.LifecycleListener;
 import co.elastic.apm.agent.logging.LoggingConfiguration;
+import co.elastic.apm.agent.processing.ApmServerReporterProcessor;
+import co.elastic.apm.agent.processing.BreakdownMetricsEventProcessor;
+import co.elastic.apm.agent.processing.EventQueueWorker;
+import co.elastic.apm.agent.processing.JCToolsReporter;
+import co.elastic.apm.agent.report.ApmServerReporter;
 import co.elastic.apm.agent.report.Reporter;
 import co.elastic.apm.agent.report.ReporterFactory;
+import co.elastic.apm.agent.report.ReportingEventHandler;
+import co.elastic.apm.agent.util.ExecutorUtils;
+import co.elastic.apm.agent.util.queues.ExponentiallyIncreasingSleepingJCToolsWaitStrategy;
+import co.elastic.apm.agent.util.queues.MpscThreadLocalQueue;
+import com.blogspot.mydailyjava.weaklockfree.DetachedThreadLocal;
+import org.jctools.queues.SpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.stagemonitor.configuration.ConfigurationOptionProvider;
@@ -55,14 +66,14 @@ public class ElasticApmTracerBuilder {
 
     private final Logger logger;
     @Nullable
+    private final String agentArguments;
+    @Nullable
     private ConfigurationRegistry configurationRegistry;
     @Nullable
     private Reporter reporter;
     @Nullable
     private Iterable<LifecycleListener> lifecycleListeners;
     private Map<String, String> inlineConfig = new HashMap<>();
-    @Nullable
-    private final String agentArguments;
 
     public ElasticApmTracerBuilder() {
         this(null);
@@ -101,7 +112,24 @@ public class ElasticApmTracerBuilder {
             configurationRegistry = getDefaultConfigurationRegistry(configSources);
         }
         if (reporter == null) {
-            reporter = new ReporterFactory().createReporter(configurationRegistry, null, null);
+            final ReporterFactory reporterFactory = new ReporterFactory();
+            ReportingEventHandler reportingEventHandler = reporterFactory.getReportingEventHandler(configurationRegistry, null, null);
+            reporter = reporterFactory.createReporter(configurationRegistry, reportingEventHandler);
+
+/*
+            MpscThreadLocalQueue<Object> eventQueue = new MpscThreadLocalQueue<>(DetachedThreadLocal.Cleaner.INLINE, 128);
+            reporter = new JCToolsReporter(eventQueue);
+
+            SpscArrayQueue<Object> reporterQueue = new SpscArrayQueue<>(256);
+            EventQueueWorker eventQueueWorker = new EventQueueWorker(new BreakdownMetricsEventProcessor(reporterQueue), eventQueue, new ExponentiallyIncreasingSleepingJCToolsWaitStrategy(10_000, 10_000_000, "apm-event-processor"), new ExecutorUtils.NamedThreadFactory("apm-event-processor"));
+            eventQueueWorker.start();
+
+            ApmServerReporterProcessor reporterProcessor = new ApmServerReporterProcessor(reportingEventHandler);
+            EventQueueWorker reporterWorker = new EventQueueWorker(reporterProcessor, reporterQueue, new ExponentiallyIncreasingSleepingJCToolsWaitStrategy(10_000, 10_000_000, "reporter"), new ExecutorUtils.NamedThreadFactory("apm-reporter"));
+            reporterWorker.start();
+*/
+
+            reporter = reporterFactory.createReporter(configurationRegistry, reportingEventHandler);
         }
         if (lifecycleListeners == null) {
             lifecycleListeners = ServiceLoader.load(LifecycleListener.class, getClass().getClassLoader());

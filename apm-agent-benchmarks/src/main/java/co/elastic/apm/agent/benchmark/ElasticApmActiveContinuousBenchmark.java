@@ -25,6 +25,7 @@
 package co.elastic.apm.agent.benchmark;
 
 import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.runner.RunnerException;
 
 import javax.servlet.ServletException;
@@ -40,6 +41,7 @@ public class ElasticApmActiveContinuousBenchmark extends ElasticApmContinuousBen
         run(ElasticApmActiveContinuousBenchmark.class);
     }
 
+//    @Threads(8)
     @Benchmark
     public int benchmarkWithApm(RequestState requestState) throws IOException, ServletException {
         httpServlet.service(requestState.request, requestState.response);

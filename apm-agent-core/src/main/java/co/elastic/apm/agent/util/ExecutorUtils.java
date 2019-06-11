@@ -52,7 +52,7 @@ public final class ExecutorUtils {
     public static class NamedThreadFactory implements ThreadFactory {
         private final String threadName;
 
-        NamedThreadFactory(String threadName) {
+        public NamedThreadFactory(String threadName) {
             this.threadName = threadName;
         }
 

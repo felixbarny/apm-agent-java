@@ -41,7 +41,7 @@ import org.openjdk.jmh.runner.options.TimeValue;
 @Warmup(iterations = 10)
 @Measurement(iterations = 10)
 // set value = 0 if you want to debug the benchmarks
-@Fork(value = 1, jvmArgsAppend = {
+@Fork(value = 0, jvmArgsAppend = {
     "-Xmx1g",
     "-Xms1g"/*,
     "-XX:+UnlockDiagnosticVMOptions",

@@ -71,9 +71,9 @@ public class QueueBasedObjectPool<T> extends co.elastic.apm.agent.objectpool.imp
     }
 
     @Override
-    public void recycle(T obj) {
+    public boolean recycle(T obj) {
         resetter.recycle(obj);
-        queue.offer(obj);
+        return queue.offer(obj);
     }
 
     @Override
