@@ -123,7 +123,7 @@ Valid options: <#list option.validOptionsLabelMap?values as validOption>`${valid
 # ${option.label}
 #
 </#if>
-# ${option.description?replace("\n", "\n# ", "r")}
+# ${option.description?replace("\n", "\n# ", "r")?replace("`boot_delegation_packages", "boot_delegation_packages")?replace("sun.*, co.elastic.apm.agent.*`", "sun.*, co.elastic.apm.agent.*")}
 #
 <#if option.validOptions?has_content>
 # Valid options: <#list option.validOptionsLabelMap?values as validOption>${validOption}<#if validOption_has_next>, </#if></#list>
