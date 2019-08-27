@@ -36,6 +36,7 @@ import co.elastic.apm.agent.bci.methodmatching.TraceMethodInstrumentation;
 import co.elastic.apm.agent.configuration.CoreConfiguration;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.ElasticApmTracerBuilder;
+import co.elastic.apm.agent.main.AgentMain;
 import co.elastic.apm.agent.matcher.WildcardMatcher;
 import co.elastic.apm.agent.util.DependencyInjectingServiceLoader;
 import net.bytebuddy.ByteBuddy;
@@ -190,6 +191,13 @@ public class ElasticApmAgent {
                         boolean typeMatches;
                         try {
                             typeMatches = typeMatcher.matches(typeDescription) && versionPostFilter.matches(protectionDomain);
+                            if (typeMatches) {
+                                try {
+                                    instrumentation.onTypeMatch(typeDescription, classLoader, protectionDomain);
+                                } catch (Exception e) {
+                                    logger.error(e.getMessage(), e);
+                                }
+                            }
                         } catch (Exception ignored) {
                             // could be because of a missing type
                             typeMatches = false;

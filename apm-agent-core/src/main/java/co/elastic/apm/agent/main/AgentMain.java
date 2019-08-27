@@ -22,12 +22,24 @@
  * under the License.
  * #L%
  */
-package co.elastic.apm.agent.bci;
+package co.elastic.apm.agent.main;
 
+import co.elastic.apm.agent.bci.OsgiBootDelegationEnabler;
+import net.bytebuddy.dynamic.loading.ClassInjector;
+
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.instrument.Instrumentation;
 import java.net.URISyntaxException;
 import java.nio.file.FileSystems;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 /**
@@ -74,6 +86,14 @@ public class AgentMain {
         }
         try {
             FileSystems.getDefault();
+            File bootstrapJar = getBootstrapJar();
+            try {
+                injectJar(bootstrapJar, ClassInjector.UsingUnsafe.ofBootLoader());
+            } finally {
+                if (!bootstrapJar.delete()) {
+                    bootstrapJar.deleteOnExit();
+                }
+            }
             final File agentJarFile = getAgentJarFile();
             try (JarFile jarFile = new JarFile(agentJarFile)) {
                 instrumentation.appendToBootstrapClassLoaderSearch(jarFile);
@@ -87,6 +107,60 @@ public class AgentMain {
         } catch (Exception e) {
             System.err.println("Failed to start agent");
             e.printStackTrace();
+        }
+    }
+
+    private static void injectJar(File bootstrapJar, ClassInjector classInjector) throws IOException, ClassNotFoundException {
+        Map<String, byte[]> types = new HashMap<>();
+        try (JarFile jarFile = new JarFile(bootstrapJar)) {
+            Enumeration<JarEntry> entries = jarFile.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry jarEntry = entries.nextElement();
+                if (jarEntry.getName().endsWith(".class")) {
+                    try (InputStream inputStream = jarFile.getInputStream(jarEntry)) {
+                        types.put(toClassName(jarEntry.getName()), getBytes(inputStream));
+                    }
+                }
+            }
+        }
+
+        classInjector.injectRaw(types);
+        // verify that the types have been successfully injected into the bootstrap CL
+        for (String injectedType : types.keySet()) {
+            Class.forName(injectedType, false, null);
+        }
+    }
+
+    private static String toClassName(String resourceName) {
+        return resourceName.replace('/', '.').replace(".class", "");
+    }
+
+    private static byte[] getBytes(InputStream is) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] data = new byte[1024];
+        for (int n; (n = is.read(data, 0, data.length)) != -1; ) {
+            buffer.write(data, 0, n);
+        }
+        return buffer.toByteArray();
+    }
+
+    private static File getBootstrapJar() {
+        try (InputStream agentJar = AgentMain.class.getResourceAsStream("/apm-agent-bootstrap.jar")) {
+            if (agentJar == null) {
+                throw new IllegalStateException("Agent jar not found");
+            }
+            // don't delete on exit, because this the attaching application may terminate before the target application
+            File tempAgentJar = File.createTempFile("apm-agent-bootstrap", ".jar");
+            try (OutputStream out = new FileOutputStream(tempAgentJar)) {
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = agentJar.read(buffer)) != -1) {
+                    out.write(buffer, 0, length);
+                }
+            }
+            return tempAgentJar;
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
         }
     }
 

@@ -41,7 +41,7 @@ public final class ExecutorUtils {
 
     public static ScheduledThreadPoolExecutor createSingleThreadSchedulingDeamonPool(final String threadName, int queueCapacity) {
         final ThreadFactory daemonThreadFactory = new NamedThreadFactory(threadName);
-        return new ScheduledThreadPoolExecutor(queueCapacity, daemonThreadFactory);
+        return new ScheduledThreadPoolExecutor(1, daemonThreadFactory);
     }
 
     public static ThreadPoolExecutor createSingleThreadDeamonPool(final String threadName, int queueCapacity) {

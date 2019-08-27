@@ -27,6 +27,7 @@ package co.elastic.apm.agent.bci;
 import co.elastic.apm.agent.configuration.CoreConfiguration;
 import co.elastic.apm.agent.context.LifecycleListener;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
+import co.elastic.apm.agent.main.AgentMain;
 
 import javax.annotation.Nullable;
 

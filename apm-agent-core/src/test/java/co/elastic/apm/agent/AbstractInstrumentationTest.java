@@ -25,10 +25,12 @@
 package co.elastic.apm.agent;
 
 import co.elastic.apm.agent.bci.ElasticApmAgent;
+import co.elastic.apm.agent.bootstrap.Dispatcher;
 import co.elastic.apm.agent.configuration.SpyConfiguration;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.ElasticApmTracerBuilder;
 import net.bytebuddy.agent.ByteBuddyAgent;
+import net.bytebuddy.dynamic.loading.ClassInjector;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -38,6 +40,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.stagemonitor.configuration.ConfigurationRegistry;
+import org.stagemonitor.util.IOUtils;
+
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +50,16 @@ public abstract class AbstractInstrumentationTest {
     protected static ElasticApmTracer tracer;
     protected static MockReporter reporter;
     protected static ConfigurationRegistry config;
+
+    static {
+        try {
+            byte[] dispatcher = IOUtils.readToBytes(Dispatcher.class.getResourceAsStream("Dispatcher.class"));
+            ClassInjector.UsingUnsafe.ofBootLoader().injectRaw(Map.of(Dispatcher.class.getName(), dispatcher));
+            assertThat(Class.forName(Dispatcher.class.getName(), false, null).getClassLoader()).isNull();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     @BeforeAll
     @BeforeClass

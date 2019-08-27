@@ -51,14 +51,14 @@ public class WildFlyIT extends AbstractServletContainerIntegrationTest {
     @Parameterized.Parameters(name = "Wildfly {0}")
     public static Iterable<Object[]> data() {
         return Arrays.asList(new Object[][]{
-            {"8.2.1.Final"},
+            /*{"8.2.1.Final"},
             {"9.0.0.Final"},
             {"10.0.0.Final"},
             {"11.0.0.Final"},
             {"12.0.0.Final"},
             {"13.0.0.Final"},
             {"14.0.0.Final"},
-            {"15.0.0.Final"},
+            {"15.0.0.Final"},*/
             {"16.0.0.Final"}
         });
     }

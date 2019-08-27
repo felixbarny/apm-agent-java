@@ -90,6 +90,7 @@
         <module>apm-opentracing</module>
         <module>integration-tests</module>
         <module>apm-agent-attach</module>
+        <module>apm-agent-bootstrap</module>
     </modules>
 
     <distributionManagement>
@@ -445,7 +446,24 @@
                     </execution>
                 </executions>
             </plugin>
-
+            <plugin>
+                <groupId>pl.project13.maven</groupId>
+                <artifactId>git-commit-id-plugin</artifactId>
+                <version>3.0.1</version>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                        <phase>validate</phase>
+                    </execution>
+                </executions>
+                <configuration>
+                    <runOnlyOnce>true</runOnlyOnce>
+                    <skipPoms>false</skipPoms>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 

@@ -81,7 +81,7 @@ public abstract class AbstractServletContainerIntegrationTest {
     private static final String pathToJavaagent;
     private static final String pathToAttach;
     private static final Logger logger = LoggerFactory.getLogger(AbstractServletContainerIntegrationTest.class);
-    static boolean ENABLE_DEBUGGING = false;
+    static boolean ENABLE_DEBUGGING = true;
     private static MockServerContainer mockServerContainer = new MockServerContainer()
         //.withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger(MockServerContainer.class)))
         .withNetworkAliases("apm-server")

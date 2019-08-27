@@ -155,4 +155,8 @@ public abstract class ElasticApmInstrumentation {
     public Advice.OffsetMapping.Factory<?> getOffsetMapping() {
         return null;
     }
+
+    protected void onTypeMatch(TypeDescription typeDescription, ClassLoader classLoader, ProtectionDomain protectionDomain) throws Exception {
+
+    }
 }

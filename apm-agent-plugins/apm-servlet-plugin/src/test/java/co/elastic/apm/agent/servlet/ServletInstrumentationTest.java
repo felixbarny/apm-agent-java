@@ -134,6 +134,7 @@ class ServletInstrumentationTest extends AbstractServletTest {
         if (expectedTransactions > 0) {
             reporter.getFirstTransaction(500);
             assertThat(reporter.getTransactions().stream().map(transaction -> transaction.getTraceContext().getServiceName()).distinct()).containsExactly(getClass().getSimpleName());
+//            assertThat(reporter.getFirstTransaction().getContext().getLabel("url")).isNotNull();
         }
         assertThat(reporter.getTransactions()).hasSize(expectedTransactions);
     }

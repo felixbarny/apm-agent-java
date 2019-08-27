@@ -52,7 +52,7 @@ public class JettyIT extends AbstractServletContainerIntegrationTest {
 
     @Parameterized.Parameters(name = "Jetty {0}")
     public static Iterable<Object[]> data() {
-        return Arrays.asList(new Object[][]{{"9.2"}, {"9.3"}, {"9.4"}});
+        return Arrays.asList(new Object[][]{/*{"9.2"}, {"9.3"},*/ {"9.4"}});
     }
 
     @Override

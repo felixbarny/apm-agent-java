@@ -25,12 +25,16 @@
 package co.elastic.apm.agent.servlet;
 
 import co.elastic.apm.agent.bci.ElasticApmInstrumentation;
+import co.elastic.apm.agent.bci.HelperClassManager;
+import co.elastic.apm.agent.dispatcher.HelperDispatcher;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import net.bytebuddy.description.NamedElement;
 import net.bytebuddy.description.method.MethodDescription;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.matcher.ElementMatcher;
 
+import java.io.IOException;
+import java.security.ProtectionDomain;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -87,4 +91,11 @@ public class ServletInstrumentation extends ElasticApmInstrumentation {
         return Collections.singleton(SERVLET_API);
     }
 
+
+    @Override
+    protected void onTypeMatch(TypeDescription typeDescription, ClassLoader classLoader, ProtectionDomain protectionDomain) throws Exception {
+//        HelperClassManager.ForHelperDispatcher.inject(classLoader, protectionDomain,"co.elastic.apm.agent.servlet.ServletTestHelper");
+//        HelperClassManager.ForDispatcher.inject(classLoader, protectionDomain,"co.elastic.apm.agent.servlet.ServletTestHelper");
+        HelperClassManager.ForDispatcher.inject(classLoader, protectionDomain,"co.elastic.apm.agent.servlet.ServletApiAdvice$ServletHelper");
+    }
 }

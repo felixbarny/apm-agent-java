@@ -24,26 +24,33 @@
  */
 package co.elastic.apm.agent.bci;
 
+import co.elastic.apm.agent.bootstrap.Dispatcher;
+import co.elastic.apm.agent.dispatcher.HelperDispatcher;
 import co.elastic.apm.agent.impl.ElasticApmTracer;
 import com.blogspot.mydailyjava.weaklockfree.WeakConcurrentMap;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.loading.ByteArrayClassLoader;
 import net.bytebuddy.dynamic.loading.ClassInjector;
+import net.bytebuddy.dynamic.loading.MultipleParentClassLoader;
 import net.bytebuddy.dynamic.loading.PackageDefinitionStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.stagemonitor.util.IOUtils;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
 import java.lang.ref.WeakReference;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
@@ -197,6 +204,26 @@ public abstract class HelperClassManager<T> {
      * Failures in helper class loading are cached so that no loading attempts will be made over and over.
      * In order to optimize performance, stale entries are removed only when new helpers are being loaded (normally at the beginning of
      * startup time and when new applications are deployed). These maps shouldn't grow big as they have an entry per class loader.
+     * <pre>{@code
+     *
+     * Bootstrap CL
+     * - WrapperCreator
+     * - HelperClassManager.ForAnyClassLoader
+     *     // static also contains helpers. allows to add helpers to the HelperHolder
+     *   - WeakMap<ClassLoader, WeakReference<List<Object>>> clId2helperImplListMap // [WebAppCL: HelperHolder[CallbackWrapperCreator]]
+     *     // allows lookup for helper by ClassLoader
+     *   - WeakMap<ClassLoader, WeakReference<T>> clId2helperMap                    // [WebAppCL: CallbackWrapperCreator]
+     *                                                                                  ~          ~
+     * System CL                                                                        ~          ~
+     *                                                                                  ~          ~
+     * WebAppCL <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~          ~
+     *  - okhttp3.Callback                                                                         ~
+     *  - HelperHolder // [CallbackWrapperCreator] <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     *                      | prevents helper from being GCed                                      ~
+     * Helper CL            v                                                                      ~
+     *  - CallbackWrapperCreator implements WrapperCreator <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     *  - CallbackWrapper
+     * }</pre>
      *
      * @param <T>
      */
@@ -253,6 +280,13 @@ public abstract class HelperClassManager<T> {
                         // Currently using the target class's ProtectionDomain, still need to validate that this is a valid approach
                         Class<?> helperHolderClass = injectClass(targetCl, classOfTargetClassLoader.getProtectionDomain(), "co.elastic.apm.agent.bci.HelperHolder"
                             , true);
+                        if (helperHolderClass.getClassLoader() != targetCl) {
+                            // we're now holding references from a parent of the target CL
+                            // this can lead to class loader leakage if the target CL is supposed to be collectable and the
+                            // happens if the HelperHolder has been injected into a parent CL
+                            // or if the targetCL has parent first semantics, thus loading HelperHolder from the bootstrap CL
+                            logger.warn("Intended to load HelperHolder from {} but was loaded from {}", targetCl, helperHolderClass.getClassLoader());
+                        }
                         //noinspection unchecked
                         helperImplList = (List<Object>) helperHolderClass.getField("helperInstanceList").get(null);
                         clId2helperImplListMap.put(targetCl, new WeakReference<>(helperImplList));
@@ -331,6 +365,190 @@ public abstract class HelperClassManager<T> {
                                                 Map<String, byte[]> typeDefinitions) throws ClassNotFoundException {
         final ClassLoader helperCL = new ByteArrayClassLoader.ChildFirst(targetClassLoader, true, typeDefinitions);
         return (Class<T>) helperCL.loadClass(implementation);
+    }
+
+    /**
+     * <pre>{@code
+     *
+     * Bootstrap CL
+     * - HelperClassManager
+     *   - Set<Class<HelperDispatcher>> injectedHelpers  // [HelperDispatcher]
+     *   - Map<ClassLoader, Set<String>> alreadyInjected // [WebAppCL: ["CallbackWrapperCreator"]]
+     *                                                             ~          ~
+     * System CL                                                   ~          ~
+     *                                                             ~          ~
+     * WebAppCL <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~          ~
+     *  - okhttp3.Callback                                                    ~
+     *  - HelperDispatcher // [MethodHandle(CallbackWrapperCreator#wrap]) <~~~~
+     *                      |
+     * Helper CL            v
+     *  - CallbackWrapperCreator implements WrapperCreator
+     *  - CallbackWrapper
+     * }</pre>
+     */
+    public static class ForHelperDispatcher {
+
+        private static final String CLASS_NAME = HelperDispatcher.class.getName();
+        private static final String RESSOURCE_NAME = HelperDispatcher.class.getName().replace('.', '/') + ".class";
+        // TODO cleaner thread
+        private static final Set<Class<HelperDispatcher>> injectedHelpers = Collections.newSetFromMap(new WeakHashMap<Class<HelperDispatcher>, Boolean>());
+        private static final Map<ClassLoader, Set<String>> alreadyInjected = new WeakHashMap<ClassLoader, Set<String>>();
+
+        public synchronized static void inject(@Nullable ClassLoader targetClassLoader, @Nullable ProtectionDomain protectionDomain, String... classesToInject) throws ClassNotFoundException, IOException {
+            Set<String> injectedClasses = alreadyInjected.get(targetClassLoader);
+            if (injectedClasses == null) {
+                injectedClasses = new HashSet<>();
+                alreadyInjected.put(targetClassLoader, injectedClasses);
+            }
+            if (injectedClasses.containsAll(Arrays.asList(classesToInject))) {
+                return;
+            }
+            injectedClasses.addAll(Arrays.asList(classesToInject));
+
+            injectHelperDispatcher(targetClassLoader, protectionDomain);
+
+            ClassLoader agentClassLoader = HelperClassManager.class.getClassLoader();
+            final ClassLoader multiParent = new MultipleParentClassLoader(Arrays.asList(targetClassLoader, agentClassLoader));
+            final Map<String, byte[]> typeDefinitions = getTypeDefinitions(Arrays.asList(classesToInject));
+            final ClassLoader helperCL = new ByteArrayClassLoader.ChildFirst(multiParent, true, typeDefinitions);
+
+            for (String name : classesToInject) {
+                Class<?> clazz = Class.forName(name, true, helperCL);
+                if (clazz.getClassLoader() != helperCL) {
+                    throw new IllegalStateException("Helper classes not loaded from helper class loader, instead loaded from " + clazz.getClassLoader());
+                }
+            }
+        }
+
+        private static void injectHelperDispatcher(@Nullable ClassLoader classLoader, @Nullable ProtectionDomain protectionDomain) throws IOException, ClassNotFoundException {
+            try {
+                injectedHelpers.add((Class<HelperDispatcher>) Class.forName(CLASS_NAME, false, classLoader));
+            } catch (ClassNotFoundException e) {
+                ClassInjector injector = new ClassInjector.UsingUnsafe(classLoader, protectionDomain);
+                byte[] classBytes = IOUtils.readToBytes(HelperDispatcher.class.getClassLoader().getResourceAsStream(RESSOURCE_NAME));
+                injector.injectRaw(Collections.singletonMap(CLASS_NAME, classBytes));
+                injectedHelpers.add((Class<HelperDispatcher>) Class.forName(CLASS_NAME, false, classLoader));
+            }
+        }
+
+        /**
+         * Calls {@link HelperDispatcher#clear()} on all injected {@link HelperDispatcher}s.
+         *
+         * This should make all helper class loaders eligible for GC.
+         * That is because the {@link java.lang.invoke.MethodHandle}s registered in the {@link HelperDispatcher} should be the only
+         * references to the classes loaded by the helper class loader.
+         */
+        private void clearAll() {
+            for (Class<HelperDispatcher> injectedHelper : injectedHelpers) {
+                try {
+                    injectedHelper.getMethod("clear").invoke(null);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+    }
+
+    /**
+     * <pre>{@code
+     *
+     * Bootstrap CL
+     * - Dispatcher
+     *   - Map<String, Object>
+     *      - WeakMap<ClassLoader,
+     * - HelperClassManager
+     *   - Set<Class<HelperDispatcher>> injectedHelpers  // [HelperDispatcher]
+     *   - Map<ClassLoader, Set<String>> alreadyInjected // [WebAppCL: ["CallbackWrapperCreator"]]
+     *                                                             ~          ~
+     * System CL                                                   ~          ~
+     *                                                             ~          ~
+     * WebAppCL <~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~          ~
+     *  - okhttp3.Callback                                                    ~
+     *  - Dispatcher // [MethodHandle(CallbackWrapperCreator#wrap]) <~~~~
+     *                      |
+     * Helper CL            v
+     *  - CallbackWrapperCreator implements WrapperCreator
+     *  - CallbackWrapper
+     * }</pre>
+     */
+    public static class ForDispatcher {
+
+        // TODO cleaner thread
+        private static final Set<Class<HelperDispatcher>> injectedHelpers = Collections.newSetFromMap(new WeakHashMap<Class<HelperDispatcher>, Boolean>());
+        private static final WeakConcurrentMap<ClassLoader, WeakReference<Map<String, Object>>> dispatcherByClassLoader = new WeakConcurrentMap.WithInlinedExpunction<>();
+        private static final Map<ClassLoader, Set<String>> alreadyInjected = new WeakHashMap<ClassLoader, Set<String>>();
+
+        @Nullable
+        public static Map<String, Object> getForClassLoaderOfClass(Class<?> classOfTargetClassLoader) {
+            return dispatcherByClassLoader.get(classOfTargetClassLoader.getClassLoader()).get();
+        }
+
+        @Nullable
+        public static MethodHandle getMethodHandle(Class<?> classOfTargetClassLoader, String methodHandleName) {
+            Map<String, Object> stringMap = dispatcherByClassLoader.get(classOfTargetClassLoader.getClassLoader()).get();
+            if (stringMap != null) {
+                return (MethodHandle) stringMap.get(methodHandleName);
+            }
+            return null;
+        }
+
+        public synchronized static void inject(@Nullable ClassLoader targetClassLoader, @Nullable ProtectionDomain protectionDomain, String... classesToInject) throws ClassNotFoundException, IOException, ReflectiveOperationException {
+            Set<String> injectedClasses = alreadyInjected.get(targetClassLoader);
+            if (injectedClasses == null) {
+                injectedClasses = new HashSet<>();
+                alreadyInjected.put(targetClassLoader, injectedClasses);
+            }
+            if (injectedClasses.containsAll(Arrays.asList(classesToInject))) {
+                return;
+            }
+            injectedClasses.addAll(Arrays.asList(classesToInject));
+
+            if (!dispatcherByClassLoader.containsKey(targetClassLoader)) {
+                Class<?> dispatcher = injectHelperDispatcher(targetClassLoader, protectionDomain);
+                Map<String, Object> registry = (Map<String, Object>) dispatcher.getMethod("getRegistry").invoke(null);
+                dispatcherByClassLoader.put(targetClassLoader, new WeakReference<>(registry));
+            }
+
+            ClassLoader agentClassLoader = HelperClassManager.class.getClassLoader();
+            final ClassLoader multiParent = new MultipleParentClassLoader(Arrays.asList(targetClassLoader, agentClassLoader));
+            final Map<String, byte[]> typeDefinitions = getTypeDefinitions(Arrays.asList(classesToInject));
+            final ClassLoader helperCL = new ByteArrayClassLoader.ChildFirst(multiParent, true, typeDefinitions);
+
+            for (String name : classesToInject) {
+                Class<?> clazz = Class.forName(name, true, helperCL);
+                if (clazz.getClassLoader() != helperCL) {
+                    throw new IllegalStateException("Helper classes not loaded from helper class loader, instead loaded from " + clazz.getClassLoader());
+                }
+                try {
+                    clazz.getMethod("register", Map.class).invoke(null, dispatcherByClassLoader.get(targetClassLoader).get());
+                } catch (NoSuchMethodException e) {
+                    // ignore
+                }
+            }
+        }
+
+        private static Class<?> injectHelperDispatcher(@Nullable ClassLoader classLoader, @Nullable ProtectionDomain protectionDomain) throws IOException, ClassNotFoundException {
+            ClassInjector injector = new ClassInjector.UsingUnsafe(classLoader, protectionDomain);
+            byte[] classBytes = IOUtils.readToBytes(HelperDispatcher.class.getClassLoader().getResourceAsStream("HelperDispatcher.class"));
+            return injector.injectRaw(Collections.singletonMap(HelperDispatcher.class.getName(), classBytes)).values().iterator().next();
+        }
+
+        /**
+         * Calls {@link HelperDispatcher#clear()} on all injected {@link HelperDispatcher}s.
+         * <p>
+         * This should make all helper class loaders eligible for GC.
+         * That is because the {@link java.lang.invoke.MethodHandle}s registered in the {@link HelperDispatcher} should be the only
+         * references to the classes loaded by the helper class loader.
+         */
+        private void clearAll() {
+            for (Class<HelperDispatcher> injectedHelper : injectedHelpers) {
+                try {
+                    injectedHelper.getMethod("clear").invoke(null);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
     }
 
     private static Map<String, byte[]> getTypeDefinitions(List<String> helperClassNames) throws IOException {
