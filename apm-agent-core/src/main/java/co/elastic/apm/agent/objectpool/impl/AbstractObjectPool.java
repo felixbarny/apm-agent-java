@@ -81,5 +81,5 @@ public abstract class AbstractObjectPool<T> implements ObjectPool<T> {
      * @return {@code null} if pool capacity is exhausted
      */
     @Nullable
-    abstract protected T tryCreateInstance();
+    public abstract T tryCreateInstance();
 }

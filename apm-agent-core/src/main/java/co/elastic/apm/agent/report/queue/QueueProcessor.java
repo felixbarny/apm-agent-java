@@ -9,19 +9,21 @@ public class QueueProcessor<T> extends AbstractLifecycleListener implements Runn
     private final MessagePassingQueue<T> queue;
     private final Thread processingThread;
     private final MessagePassingQueue.WaitStrategy waitStrategy;
-    private final MessagePassingQueue.ExitCondition exitCondition;
-    private final MessagePassingQueue.Consumer<T> consumer;
+    private final TimeoutExitCondition exitCondition;
+    private final MessagePassingQueue.Consumer<T> eventConsumer;
+    private final MessagePassingQueue.Consumer<Void> tickConsumer;
 
     protected QueueProcessor(MessagePassingQueue<T> queue,
                              MutableRunnableThread processingThread,
                              MessagePassingQueue.WaitStrategy waitStrategy,
-                             MessagePassingQueue.ExitCondition exitCondition,
-                             MessagePassingQueue.Consumer<T> consumer) {
+                             MessagePassingQueue.Consumer<T> eventConsumer,
+                             MessagePassingQueue.Consumer<Void> tickConsumer) {
         this.queue = queue;
         this.processingThread = processingThread;
         this.waitStrategy = waitStrategy;
-        this.exitCondition = exitCondition;
-        this.consumer = consumer;
+        this.exitCondition = new TimeoutExitCondition();
+        this.eventConsumer = eventConsumer;
+        this.tickConsumer = tickConsumer;
         processingThread.setRunnable(this);
     }
 
@@ -33,7 +35,9 @@ public class QueueProcessor<T> extends AbstractLifecycleListener implements Runn
     @Override
     public void run() {
         while (!Thread.currentThread().isInterrupted()) {
-            queue.drain(consumer, waitStrategy, exitCondition);
+            exitCondition.newTimeoutIn(100);
+            queue.drain(eventConsumer, waitStrategy, exitCondition);
+            tickConsumer.accept(null);
         }
     }
 

@@ -13,8 +13,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 public class QueueProcessorTest {
@@ -22,15 +22,15 @@ public class QueueProcessorTest {
     private static final int THREAD_LOCAL_CAPACITY = 4;
     private QueueProcessor<String> queueProcessor;
     private List<String> processedEvents = new ArrayList<>();
-    private ThreadLocalQueue<String> queue;
-    private ParkingWaitStrategy waitStrategy;
+    private SignallingMessagePassingQueue<String> queue;
+    private UnparkOnSignalWaitStrategy waitStrategy;
 
     @BeforeEach
     void setUp() {
         MutableRunnableThread thread = new MutableRunnableThread();
-        waitStrategy = spy(new ParkingWaitStrategy(thread, 100_000_000L));
-        queue = new ThreadLocalQueue<>(() -> new SpscArrayQueue<String>(THREAD_LOCAL_CAPACITY), new MpscChunkedArrayQueue<>(4), waitStrategy);
-        queueProcessor = new QueueProcessor<String>(queue, thread, waitStrategy, InterruptedExitCondition.INSTANCE, processedEvents::add);
+        waitStrategy = spy(new UnparkOnSignalWaitStrategy(thread, 100_000_000L));
+        queue = new SignallingMessagePassingQueue<>(new ThreadLocalQueue<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY), new MpscChunkedArrayQueue<>(4)), waitStrategy);
+        queueProcessor = new QueueProcessor<>(queue, thread, waitStrategy, processedEvents::add, e -> {});
         queueProcessor.start(mock(ElasticApmTracer.class));
     }
 
@@ -43,8 +43,7 @@ public class QueueProcessorTest {
     void testConsumeOne() {
         testProcessing(List.of("foo"));
 
-        // expeciting no signal, yet a timely processing as the park time is 100 ms
-        verify(waitStrategy, never()).signal();
+        verify(waitStrategy).signal();
     }
 
     @Test
@@ -55,8 +54,7 @@ public class QueueProcessorTest {
         }
         testProcessing(expected);
 
-        // expecing a signal when thread local queue is full
-        verify(waitStrategy).signal();
+        verify(waitStrategy, times(expected.size())).signal();
     }
 
     private void testProcessing(List<String> events) {

@@ -7,11 +7,13 @@ import co.elastic.apm.agent.metrics.MetricRegistry;
 
 public interface ApmEventConsumer {
 
-    void acceptSpan(Span span);
+    void onSpan(Span span);
 
-    void acceptTransaction(Transaction transaction);
+    void onTransaction(Transaction transaction);
 
-    void acceptError(ErrorCapture errorCapture);
+    void onError(ErrorCapture errorCapture);
 
-    void acceptMetrics(MetricRegistry metricRegistry);
+    void onMetrics(MetricRegistry metricRegistry);
+
+    void onTick();
 }

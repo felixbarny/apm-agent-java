@@ -11,9 +11,9 @@
  * the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -26,9 +26,9 @@ package co.elastic.apm.agent.report.serialize;
 
 import co.elastic.apm.agent.impl.MetaData;
 import co.elastic.apm.agent.impl.context.AbstractContext;
-import co.elastic.apm.agent.impl.context.Headers;
-import co.elastic.apm.agent.impl.context.Destination;
 import co.elastic.apm.agent.impl.context.Db;
+import co.elastic.apm.agent.impl.context.Destination;
+import co.elastic.apm.agent.impl.context.Headers;
 import co.elastic.apm.agent.impl.context.Http;
 import co.elastic.apm.agent.impl.context.Message;
 import co.elastic.apm.agent.impl.context.Request;
@@ -71,6 +71,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -141,6 +142,12 @@ public class DslJsonSerializer implements PayloadSerializer, MetricRegistry.Metr
         } finally {
             jw.reset();
         }
+    }
+
+    @Override
+    public void writeTo(ByteBuffer buffer) {
+        buffer.put(jw.getByteBuffer(), 0, jw.size());
+        jw.reset();
     }
 
     @Override
