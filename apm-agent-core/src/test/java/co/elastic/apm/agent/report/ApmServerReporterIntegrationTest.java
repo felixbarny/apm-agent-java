@@ -52,6 +52,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -112,17 +113,15 @@ class ApmServerReporterIntegrationTest {
     @Test
     void testReportTransaction() throws ExecutionException, InterruptedException {
         reporter.report(new Transaction(tracer));
-        reporter.flush().get();
+        await().untilAsserted(() -> assertThat(receivedIntakeApiCalls.get()).isEqualTo(1));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        assertThat(receivedIntakeApiCalls.get()).isEqualTo(1);
     }
 
     @Test
     void testReportSpan() throws ExecutionException, InterruptedException {
         reporter.report(new Span(tracer));
-        reporter.flush().get();
+        await().untilAsserted(() -> assertThat(receivedIntakeApiCalls.get()).isEqualTo(1));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        assertThat(receivedIntakeApiCalls.get()).isEqualTo(1);
     }
 
     @Test
@@ -136,17 +135,15 @@ class ApmServerReporterIntegrationTest {
             exchange.setStatusCode(200).endExchange();
         };
         reporter.report(new Transaction(tracer));
-        reporter.flush().get();
+        await().untilAsserted(() -> assertThat(receivedIntakeApiCalls.get()).isEqualTo(1));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        assertThat(receivedIntakeApiCalls.get()).isEqualTo(1);
     }
 
     @Test
     void testReportErrorCapture() throws ExecutionException, InterruptedException {
         reporter.report(new ErrorCapture(tracer));
-        reporter.flush().get();
+        await().untilAsserted(() -> assertThat(receivedIntakeApiCalls.get()).isEqualTo(1));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        assertThat(receivedIntakeApiCalls.get()).isEqualTo(1);
     }
 
 }

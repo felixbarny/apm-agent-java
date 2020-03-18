@@ -140,11 +140,7 @@ public class ApmServerReporter implements Reporter {
     }
 
     private void waitForFlush() {
-        try {
-            flush().get();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        flush();
     }
 
     @Override

@@ -36,6 +36,7 @@ import java.util.Objects;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -60,19 +61,17 @@ class ApmServerReporterTest {
     @Test
     void testTransactionProcessor() throws Exception {
         reporter.report(new Transaction(MockTracer.create()));
-        reporter.flush().get();
 
+        await().untilAsserted(() -> verify(reportingEventHandler).onEvent(notNull(ReportingEvent::getTransaction), anyLong(), anyBoolean()));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        verify(reportingEventHandler).onEvent(notNull(ReportingEvent::getTransaction), anyLong(), anyBoolean());
     }
 
     @Test
     void testErrorProcessor() throws Exception {
         reporter.report(new ErrorCapture(MockTracer.create()));
-        reporter.flush().get();
 
+        await().untilAsserted(() -> verify(reportingEventHandler).onEvent(notNull(ReportingEvent::getError), anyLong(), anyBoolean()));
         assertThat(reporter.getDropped()).isEqualTo(0);
-        verify(reportingEventHandler).onEvent(notNull(ReportingEvent::getError), anyLong(), anyBoolean());
     }
 
     private <T> T notNull(Function<T, ?> function) {

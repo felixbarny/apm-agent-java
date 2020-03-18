@@ -6,8 +6,8 @@ public class TimeoutExitCondition implements MessagePassingQueue.ExitCondition {
 
     private volatile long timeoutNanos;
 
-    public void newTimeoutIn(long millis) {
-        timeoutNanos = System.nanoTime() + millis * 1_000_000;
+    public void newTimeoutIn(long nanos) {
+        timeoutNanos = System.nanoTime() + nanos;
     }
 
     @Override

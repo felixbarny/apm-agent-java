@@ -1,7 +1,6 @@
 package co.elastic.apm.agent.report.queue;
 
 import co.elastic.apm.agent.impl.ElasticApmTracer;
-import org.jctools.queues.MpscChunkedArrayQueue;
 import org.jctools.queues.SpscArrayQueue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,37 +12,28 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
-public class QueueProcessorTest {
+public class ConsumerProcessorTest {
 
     private static final int THREAD_LOCAL_CAPACITY = 4;
-    private QueueProcessor<String> queueProcessor;
+    private ConsumerProcessor<String> consumerProcessor;
     private List<String> processedEvents = new ArrayList<>();
-    private SignallingMessagePassingQueue<String> queue;
-    private UnparkOnSignalWaitStrategy waitStrategy;
 
     @BeforeEach
     void setUp() {
-        MutableRunnableThread thread = new MutableRunnableThread();
-        waitStrategy = spy(new UnparkOnSignalWaitStrategy(thread, 100_000_000L));
-        queue = new SignallingMessagePassingQueue<>(new ThreadLocalQueue<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY), new MpscChunkedArrayQueue<>(4)), waitStrategy);
-        queueProcessor = new QueueProcessor<>(queue, thread, waitStrategy, processedEvents::add, e -> {});
-        queueProcessor.start(mock(ElasticApmTracer.class));
+        MutableRunnableThread thread = new MutableRunnableThread("processing");
+        consumerProcessor = new ConsumerProcessor<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY + 1), thread, FlushableConsumer.ConsumerAdapter.of(processedEvents::add), 100_000_000L, 100, 1000);
+        consumerProcessor.start(mock(ElasticApmTracer.class));
     }
 
     @AfterEach
-    void tearDown() {
-        queueProcessor.stop();
+    void tearDown() throws InterruptedException {
+        consumerProcessor.stop();
     }
 
     @Test
     void testConsumeOne() {
         testProcessing(List.of("foo"));
-
-        verify(waitStrategy).signal();
     }
 
     @Test
@@ -53,13 +43,11 @@ public class QueueProcessorTest {
             expected.add(Integer.toString(i));
         }
         testProcessing(expected);
-
-        verify(waitStrategy, times(expected.size())).signal();
     }
 
     private void testProcessing(List<String> events) {
         for (String event : events) {
-            queue.offer(event);
+            consumerProcessor.offer(event);
         }
         await().untilAsserted(() -> assertThat(processedEvents).isEqualTo(events));
     }

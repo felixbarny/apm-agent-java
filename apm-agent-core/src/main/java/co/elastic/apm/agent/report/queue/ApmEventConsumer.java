@@ -15,5 +15,14 @@ public interface ApmEventConsumer {
 
     void onMetrics(MetricRegistry metricRegistry);
 
-    void onTick();
+    /**
+     * Gets called when the queue is empty or every {@code n} ms.
+     * The tick rate can be configured via the constructor of {@link ConsumerProcessor}.
+     * <p>
+     * This lets implementations know when's a good time to flush accumulated events.
+     * The method is called at a regular interval (configurable via {@link ConsumerProcessor}'s constructor)
+     * or if there's nothing left in the queue to process (aka end of batch).
+     * </p>
+     */
+    void flush();
 }
