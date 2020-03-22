@@ -128,12 +128,12 @@ public class SpscOffHeapByteBuffer implements ByteRingBuffer {
     }
 
     @Override
-    public void drain(MessagePassingQueue.Consumer<ByteRingBuffer> consumer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) {
+    public void drain(MessagePassingQueue.Consumer<ByteRingBuffer> consumer, MessagePassingQueue.WaitStrategy wait, MessagePassingQueue.ExitCondition exit) {
         int idleCounter = 0;
-        while (exitCondition.keepRunning()) {
+        while (exit.keepRunning()) {
             long currentHead = getHeadPlain();
             if (isEmpty(currentHead)) {
-                idleCounter = waitStrategy.idle(idleCounter);
+                idleCounter = wait.idle(idleCounter);
                 continue;
             }
             idleCounter = 0;

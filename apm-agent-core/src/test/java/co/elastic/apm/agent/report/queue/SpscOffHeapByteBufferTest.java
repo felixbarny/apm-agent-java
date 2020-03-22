@@ -107,7 +107,7 @@ public class SpscOffHeapByteBufferTest {
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
-            }, () -> baos.size() < 2, idleCounter -> idleCounter);
+            }, idleCounter -> idleCounter, () -> baos.size() < 2);
             return baos.toByteArray();
         });
 
