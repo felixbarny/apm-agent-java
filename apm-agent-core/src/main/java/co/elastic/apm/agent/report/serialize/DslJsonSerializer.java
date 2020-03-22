@@ -58,6 +58,7 @@ import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.metrics.MetricSet;
 import co.elastic.apm.agent.report.ApmServerClient;
+import co.elastic.apm.agent.report.queue.ByteQueue;
 import co.elastic.apm.agent.util.PotentiallyMultiValuedMap;
 import com.dslplatform.json.BoolConverter;
 import com.dslplatform.json.DslJson;
@@ -71,7 +72,6 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -133,6 +133,13 @@ public class DslJsonSerializer implements PayloadSerializer, MetricRegistry.Metr
     }
 
     @Override
+    public boolean writeTo(ByteQueue bq) {
+        boolean offered = bq.offer(jw.getByteBuffer(), jw.size());
+        jw.reset();
+        return offered;
+    }
+
+    @Override
     public void flush() throws IOException {
         jw.flush();
         try {
@@ -142,12 +149,6 @@ public class DslJsonSerializer implements PayloadSerializer, MetricRegistry.Metr
         } finally {
             jw.reset();
         }
-    }
-
-    @Override
-    public void writeTo(ByteBuffer buffer) {
-        buffer.put(jw.getByteBuffer(), 0, jw.size());
-        jw.reset();
     }
 
     @Override

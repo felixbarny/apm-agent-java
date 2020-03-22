@@ -13,14 +13,14 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
     private final int shutdownTimeoutMillis;
     private final MessagePassingQueue.WaitStrategy waitStrategy;
     private final TimeoutExitCondition exitCondition;
-    private final FlushableConsumer<T> consumer;
+    private final MessagePassingQueue.Consumer<T> consumer;
     private final long minTickNanos;
     private final Signaller signaller;
     private boolean stopRequested = false;
 
     public ConsumerProcessor(MessagePassingQueue.Supplier<MessagePassingQueue<T>> queueSupplier,
                              MutableRunnableThread processingThread,
-                             FlushableConsumer<T> consumer,
+                             MessagePassingQueue.Consumer<T> consumer,
                              long parkTimeNanos,
                              int minTickMillis,
                              int shutdownTimeoutMillis) {
@@ -30,13 +30,7 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
         this.shutdownTimeoutMillis = shutdownTimeoutMillis;
         UnparkOnSignalWaitStrategy unparkOnSignalWaitStrategy = new UnparkOnSignalWaitStrategy(processingThread, parkTimeNanos);
         this.signaller = unparkOnSignalWaitStrategy;
-        this.waitStrategy = new MessagePassingQueue.WaitStrategy() {
-            @Override
-            public int idle(int idleCounter) {
-                consumer.flush();
-                return unparkOnSignalWaitStrategy.idle(idleCounter);
-            }
-        };
+        this.waitStrategy = unparkOnSignalWaitStrategy;
         this.exitCondition = new TimeoutExitCondition();
         this.consumer = consumer;
         processingThread.setRunnable(this);
@@ -61,7 +55,6 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
         while (!stopRequested) {
             exitCondition.newTimeoutIn(minTickNanos);
             drain(consumer, waitStrategy, exitCondition);
-            consumer.flush();
         }
         exitWhenIdleOrAfterTimeout(shutdownTimeoutMillis);
     }
@@ -75,7 +68,6 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
                 return idleCounter;
             }
         }, exitCondition);
-        consumer.flush();
     }
 
     private void drain(MessagePassingQueue.Consumer<T> c, MessagePassingQueue.WaitStrategy wait, TimeoutExitCondition exit) {

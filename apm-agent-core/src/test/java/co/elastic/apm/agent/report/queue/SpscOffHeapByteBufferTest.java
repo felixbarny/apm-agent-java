@@ -100,7 +100,7 @@ public class SpscOffHeapByteBufferTest {
 
     private byte[] readAll() throws IOException {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
-        buffer.writeTo(os);
+        buffer.writeTo(os, new byte[8]);
         return os.toByteArray();
     }
 }

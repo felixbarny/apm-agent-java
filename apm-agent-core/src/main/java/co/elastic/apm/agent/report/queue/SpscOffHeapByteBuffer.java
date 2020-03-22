@@ -14,7 +14,7 @@ import static org.jctools.util.UnsafeAccess.UNSAFE;
 /**
  * Implementation is based on {@code org.jctools.queues.SpscOffHeapIntQueue}
  */
-public class SpscOffHeapByteBuffer {
+public class SpscOffHeapByteBuffer extends OutputStream {
     public final static byte PRODUCER = 1;
     public final static byte CONSUMER = 2;
     // Cached array base offset
@@ -78,12 +78,26 @@ public class SpscOffHeapByteBuffer {
         return 4 * PortableJvmInfo.CACHE_LINE_SIZE + p2Capacity;
     }
 
-
-    public boolean offer(final byte[] bytes) {
-        return offer(bytes, bytes.length);
+    @Override
+    public void write(int b) {
+        write(new byte[]{(byte) b});
     }
 
-    public boolean offer(final byte[] bytes, int size) {
+    @Override
+    public void write(byte[] b) {
+        offer(b);
+    }
+
+    @Override
+    public void write(byte[] b, int off, int len) {
+        offer(b, off, len);
+    }
+
+    public boolean offer(final byte[] bytes) {
+        return offer(bytes, 0, bytes.length);
+    }
+
+    public boolean offer(final byte[] bytes, int offset, int size) {
         // has to be aligned in blocks of 4 bytes so that writing the size of the array never wraps in-between
         // otherwise we couldn't use putInt
         int alignedSize = alignToMultipleOf4(size);
@@ -100,7 +114,7 @@ public class SpscOffHeapByteBuffer {
         int written = 0;
         while (written < size) {
             long copyBytes = Math.min(capacity - (tail & mask), size - written);
-            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + written, null, calcElementOffset(tail), copyBytes);
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset + written, null, calcElementOffset(tail), copyBytes);
             tail += copyBytes;
             written += copyBytes;
         }
@@ -121,10 +135,6 @@ public class SpscOffHeapByteBuffer {
             }
         }
         return true;
-    }
-
-    public void writeTo(OutputStream os) throws IOException {
-        writeTo(os, new byte[1024]);
     }
 
     public void writeTo(OutputStream os, byte[] buffer) throws IOException {
