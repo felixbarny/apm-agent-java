@@ -29,6 +29,12 @@ public class SpscOffHeapByteBufferTest {
     }
 
     @Test
+    void testOfferEmpty() throws IOException {
+        buffer.offer(new byte[]{'c', 'a', 'f', 'e'}, 0);
+        assertThat(readAll()).isEqualTo(new byte[]{});
+    }
+
+    @Test
     void testOfferOne() throws IOException {
         buffer.offer(new byte[]{'c', 'a', 'f', 'e'});
         assertThat(readAll()).isEqualTo(new byte[]{'c', 'a', 'f', 'e'});
@@ -36,9 +42,8 @@ public class SpscOffHeapByteBufferTest {
 
     @Test
     void testOfferFullCapacity() throws IOException {
-        byte[] bytes = new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-        assertThat(buffer.offer(bytes)).isTrue();
-        assertThat(readAll()).isEqualTo(bytes);
+        assertThat(buffer.offer(getBytes(12))).isTrue();
+        assertThat(readAll()).isEqualTo(getBytes(12));
     }
 
     @Test

@@ -29,7 +29,7 @@ import co.elastic.apm.agent.impl.error.ErrorCapture;
 import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.Transaction;
 import co.elastic.apm.agent.metrics.MetricRegistry;
-import co.elastic.apm.agent.report.queue.ByteQueue;
+import co.elastic.apm.agent.report.queue.ByteRingBuffer;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -43,7 +43,7 @@ public interface PayloadSerializer {
      */
     void setOutputStream(OutputStream os);
 
-    boolean writeTo(ByteQueue bq);
+    boolean writeTo(ByteRingBuffer bq);
 
     void serializeMetaDataNdJson(MetaData metaData);
 

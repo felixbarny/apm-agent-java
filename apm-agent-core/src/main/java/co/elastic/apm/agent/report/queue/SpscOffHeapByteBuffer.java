@@ -15,7 +15,7 @@ import static org.jctools.util.UnsafeAccess.UNSAFE;
 /**
  * Implementation is based on {@code org.jctools.queues.SpscOffHeapIntQueue}
  */
-public class SpscOffHeapByteBuffer extends OutputStream {
+public class SpscOffHeapByteBuffer implements ByteRingBuffer {
     // Cached array base offset
     private static final long ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
     private static final MessagePassingQueue.WaitStrategy BUSY_SPIN_WAIT_STRATEGY = new MessagePassingQueue.WaitStrategy() {
@@ -79,25 +79,15 @@ public class SpscOffHeapByteBuffer extends OutputStream {
     }
 
     @Override
-    public void write(int b) {
-        write(new byte[]{(byte) b});
-    }
-
-    @Override
-    public void write(byte[] b) {
-        offer(b);
-    }
-
-    @Override
-    public void write(byte[] b, int off, int len) {
-        offer(b, off, len);
-    }
-
     public boolean offer(final byte[] bytes) {
-        return offer(bytes, 0, bytes.length);
+        return offer(bytes, bytes.length);
     }
 
-    public boolean offer(final byte[] bytes, int offset, int size) {
+    @Override
+    public boolean offer(final byte[] bytes, int size) {
+        if (size == 0) {
+            return true;
+        }
         // has to be aligned in blocks of 4 bytes so that writing the size of the array never wraps in-between
         // otherwise we couldn't use putInt
         int alignedSize = alignToMultipleOf4(size);
@@ -112,11 +102,11 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         long tail = currentTail + 4;
         long toBufferEnd = capacity - (tail & mask);
         if (toBufferEnd >= size) {
-            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset, null, calcElementOffset(tail), size);
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET, null, calcElementOffset(tail), size);
         } else {
             // when the buffer wraps, write one chunk at the end and the other chunk at the beginning
-            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset, null, calcElementOffset(tail), toBufferEnd);
-            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset + toBufferEnd, null, arrayBase, size - toBufferEnd);
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET, null, calcElementOffset(tail), toBufferEnd);
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + toBufferEnd, null, arrayBase, size - toBufferEnd);
         }
         setTail(currentTail + totalBytesToWrite);
         return true;
@@ -137,10 +127,12 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         return true;
     }
 
+    @Override
     public void writeTo(OutputStream os, byte[] buffer) throws IOException {
         writeTo(os, buffer, exitWhenEmpty, BUSY_SPIN_WAIT_STRATEGY);
     }
 
+    @Override
     public void writeTo(OutputStream os, byte[] buffer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) throws IOException {
         int idleCounter = 0;
         while (exitCondition.keepRunning()) {
