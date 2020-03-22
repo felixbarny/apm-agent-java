@@ -15,7 +15,7 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
     private final TimeoutExitCondition exitCondition;
     private final MessagePassingQueue.Consumer<T> consumer;
     private final long minTickNanos;
-    private final Signaller signaller;
+    private final QueueSignalHandler handler;
     private boolean stopRequested = false;
 
     public ConsumerProcessor(MessagePassingQueue.Supplier<MessagePassingQueue<T>> queueSupplier,
@@ -29,7 +29,7 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
         this.processingThread = processingThread;
         this.shutdownTimeoutMillis = shutdownTimeoutMillis;
         UnparkOnSignalWaitStrategy unparkOnSignalWaitStrategy = new UnparkOnSignalWaitStrategy(processingThread, parkTimeNanos);
-        this.signaller = unparkOnSignalWaitStrategy;
+        this.handler = unparkOnSignalWaitStrategy;
         this.waitStrategy = unparkOnSignalWaitStrategy;
         this.exitCondition = new TimeoutExitCondition();
         this.consumer = consumer;
@@ -45,7 +45,7 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
     public boolean offer(T event) {
         boolean offered = queue.offer(event);
         if (offered) {
-            signaller.signal();
+            handler.onNotEmpty();
         }
         return offered;
     }

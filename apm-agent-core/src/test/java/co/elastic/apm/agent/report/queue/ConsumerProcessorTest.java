@@ -22,7 +22,7 @@ public class ConsumerProcessorTest {
     @BeforeEach
     void setUp() {
         MutableRunnableThread thread = new MutableRunnableThread("processing");
-        consumerProcessor = new ConsumerProcessor<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY + 1), thread, FlushableConsumer.ConsumerAdapter.of(processedEvents::add), 100_000_000L, 100, 1000);
+        consumerProcessor = new ConsumerProcessor<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY + 1), thread, processedEvents::add, 100_000_000L, 100, 1000);
         consumerProcessor.start(mock(ElasticApmTracer.class));
     }
 

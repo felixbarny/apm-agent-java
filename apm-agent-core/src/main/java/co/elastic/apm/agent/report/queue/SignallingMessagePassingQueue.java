@@ -5,17 +5,17 @@ import org.jctools.queues.MessagePassingQueue;
 public class SignallingMessagePassingQueue<T> implements MessagePassingQueue<T> {
 
     private final MessagePassingQueue<T> delegate;
-    private final Signaller signaller;
+    private final QueueSignalHandler handler;
 
-    public SignallingMessagePassingQueue(MessagePassingQueue<T> delegate, Signaller signaller) {
+    public SignallingMessagePassingQueue(MessagePassingQueue<T> delegate, QueueSignalHandler handler) {
         this.delegate = delegate;
-        this.signaller = signaller;
+        this.handler = handler;
     }
 
     public boolean offer(T e) {
         boolean added = delegate.offer(e);
         if (added) {
-            signaller.signal();
+            handler.onNotEmpty();
         }
         return added;
     }
@@ -23,7 +23,7 @@ public class SignallingMessagePassingQueue<T> implements MessagePassingQueue<T> 
     public boolean relaxedOffer(T e) {
         boolean added = delegate.relaxedOffer(e);
         if (added) {
-            signaller.signal();
+            handler.onNotEmpty();
         }
         return added;
     }

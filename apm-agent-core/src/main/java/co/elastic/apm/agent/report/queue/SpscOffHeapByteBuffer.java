@@ -1,5 +1,6 @@
 package co.elastic.apm.agent.report.queue;
 
+import org.jctools.queues.MessagePassingQueue;
 import org.jctools.util.PortableJvmInfo;
 import org.jctools.util.Pow2;
 
@@ -15,10 +16,14 @@ import static org.jctools.util.UnsafeAccess.UNSAFE;
  * Implementation is based on {@code org.jctools.queues.SpscOffHeapIntQueue}
  */
 public class SpscOffHeapByteBuffer extends OutputStream {
-    public final static byte PRODUCER = 1;
-    public final static byte CONSUMER = 2;
     // Cached array base offset
     private static final long ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
+    private static final MessagePassingQueue.WaitStrategy BUSY_SPIN_WAIT_STRATEGY = new MessagePassingQueue.WaitStrategy() {
+        @Override
+        public int idle(int idleCounter) {
+            return idleCounter;
+        }
+    };
     // 24b,8b,8b,24b | pad | 24b,8b,8b,24b | pad
     private final ByteBuffer buffy;
     private final long headAddress;
@@ -29,27 +34,26 @@ public class SpscOffHeapByteBuffer extends OutputStream {
     private final int capacity;
     private final int mask;
     private final long arrayBase;
+    private final MessagePassingQueue.ExitCondition exitWhenEmpty;
+    private final QueueSignalHandler handler;
 
     public SpscOffHeapByteBuffer(final int capacity) {
+        this(capacity, QueueSignalHandler.Noop.INSTANCE);
+    }
+
+    public SpscOffHeapByteBuffer(final int capacity, QueueSignalHandler instance) {
         this(allocateAlignedByteBuffer(
             getRequiredBufferSize(capacity),
             PortableJvmInfo.CACHE_LINE_SIZE),
-            Pow2.roundToPowerOfTwo(capacity), (byte) (PRODUCER | CONSUMER));
+            Pow2.roundToPowerOfTwo(capacity), instance);
     }
 
-    /**
-     * This is to be used for an IPC queue with the direct buffer used being a memory
-     * mapped file.
-     *
-     * @param buff
-     * @param capacity
-     * @param viewMask
-     */
     public SpscOffHeapByteBuffer(final ByteBuffer buff,
-                                 final int capacity, byte viewMask) {
+                                 final int capacity, QueueSignalHandler handler) {
         this.capacity = Pow2.roundToPowerOfTwo(capacity);
         buffy = alignedSlice(4 * PortableJvmInfo.CACHE_LINE_SIZE + this.capacity,
             PortableJvmInfo.CACHE_LINE_SIZE, buff);
+        this.handler = handler;
 
         long alignedAddress = UnsafeDirectByteBuffer.getAddress(buffy);
 
@@ -59,16 +63,18 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         headCacheAddress = tailAddress + 8;
         arrayBase = alignedAddress + 4L * PortableJvmInfo.CACHE_LINE_SIZE;
         // producer owns tail and headCache
-        if ((viewMask & PRODUCER) == PRODUCER) {
-            setHeadCache(0);
-            setTail(0);
-        }
+        setHeadCache(0);
+        setTail(0);
         // consumer owns head and tailCache
-        if ((viewMask & CONSUMER) == CONSUMER) {
-            setTailCache(0);
-            setHead(0);
-        }
+        setTailCache(0);
+        setHead(0);
         mask = this.capacity - 1;
+        exitWhenEmpty = new MessagePassingQueue.ExitCondition() {
+            @Override
+            public boolean keepRunning() {
+                return hasContent(getHeadPlain());
+            }
+        };
     }
 
     public static int getRequiredBufferSize(final int capacity) {
@@ -104,7 +110,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         final long currentTail = getTailPlain();
         long tail = currentTail;
         int totalBytesToWrite = alignedSize + 4;
-        if (!hasRemaining(totalBytesToWrite, currentTail)) {
+        if (!hasCapacity(totalBytesToWrite, currentTail)) {
             return false;
         }
 
@@ -119,6 +125,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
             written += copyBytes;
         }
         setTail(currentTail + totalBytesToWrite);
+        handler.onNotEmpty();
         return true;
     }
 
@@ -126,7 +133,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         return ((size + 3) / 4) * 4;
     }
 
-    private boolean hasRemaining(int requestedCapacity, long currentTail) {
+    private boolean hasCapacity(int requestedCapacity, long currentTail) {
         final long wrapPoint = currentTail - capacity + requestedCapacity;
         if (getHeadCache() < wrapPoint) {
             setHeadCache(getHead());
@@ -138,7 +145,18 @@ public class SpscOffHeapByteBuffer extends OutputStream {
     }
 
     public void writeTo(OutputStream os, byte[] buffer) throws IOException {
-        for (long head = getHeadPlain(); hasMore(head); head = getHeadPlain()) {
+        writeTo(os, buffer, exitWhenEmpty, BUSY_SPIN_WAIT_STRATEGY);
+    }
+
+    public void writeTo(OutputStream os, byte[] buffer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) throws IOException {
+        int idleCounter = 0;
+        while (exitCondition.keepRunning()) {
+            long head = getHeadPlain();
+            if (!hasContent(head)) {
+                idleCounter = waitStrategy.idle(idleCounter);
+                continue;
+            }
+            idleCounter = 0;
             final long currentHead = head;
             final int size = UNSAFE.getInt(calcElementOffset(head));
             assert size <= capacity - 4 : String.format("%d > %d", size, capacity - 4);
@@ -147,7 +165,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
             int read = 0;
             while (read < size) {
                 long copyBytes = Math.min(Math.min(capacity - (head & mask), size - read), buffer.length);
-                UNSAFE.copyMemory(null, calcElementOffset(head), buffer, ARRAY_BASE_OFFSET + read, copyBytes);
+                UNSAFE.copyMemory(null, calcElementOffset(head), buffer, ARRAY_BASE_OFFSET, copyBytes);
                 head += copyBytes;
                 read += copyBytes;
                 os.write(buffer, 0, (int) copyBytes);
@@ -156,7 +174,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         }
     }
 
-    private boolean hasMore(long currentHead) {
+    private boolean hasContent(long currentHead) {
         if (currentHead >= getTailCache()) {
             setTailCache(getTail());
             if (currentHead >= getTailCache()) {

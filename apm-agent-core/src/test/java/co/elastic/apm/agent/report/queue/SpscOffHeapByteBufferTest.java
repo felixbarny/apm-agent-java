@@ -1,20 +1,31 @@
 package co.elastic.apm.agent.report.queue;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class SpscOffHeapByteBufferTest {
 
     private SpscOffHeapByteBuffer buffer;
+    private ExecutorService executorService;
 
     @BeforeEach
     void setUp() {
         buffer = new SpscOffHeapByteBuffer(16);
+        executorService = Executors.newSingleThreadExecutor();
+    }
+
+    @AfterEach
+    void tearDown() {
+        executorService.shutdown();
     }
 
     @Test
@@ -80,10 +91,26 @@ public class SpscOffHeapByteBufferTest {
         assertThat(readAll()).hasSize(20);
     }
 
+    @Test
+    void testAsyncConsumer() throws Exception {
+        buffer = new SpscOffHeapByteBuffer(32);
+        Future<byte[]> bytesFuture = executorService.submit(() -> {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            buffer.writeTo(baos, new byte[16], () -> baos.size() < 2, idleCounter -> idleCounter);
+            return baos.toByteArray();
+        });
+
+        assertThat(buffer.offer(getBytes(1))).isTrue();
+        assertThat(buffer.offer(getBytes(1))).isTrue();
+        assertThat(buffer.offer(getBytes(1))).isTrue();
+        assertThat(bytesFuture.get()).hasSize(2);
+        assertThat(readAll()).hasSize(1);
+    }
+
     private byte[] getBytes(int count) {
         byte[] bytes = new byte[count];
         for (int i = 0; i < count; i++) {
-             bytes[i] = (byte) i;
+            bytes[i] = (byte) i;
 
         }
         return bytes;
@@ -100,7 +127,7 @@ public class SpscOffHeapByteBufferTest {
 
     private byte[] readAll() throws IOException {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
-        buffer.writeTo(os, new byte[8]);
+        buffer.writeTo(os, new byte[4]);
         return os.toByteArray();
     }
 }

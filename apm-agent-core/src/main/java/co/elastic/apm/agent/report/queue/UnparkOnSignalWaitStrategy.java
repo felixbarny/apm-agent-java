@@ -5,7 +5,7 @@ import org.jctools.queues.MessagePassingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 
-public class UnparkOnSignalWaitStrategy implements MessagePassingQueue.WaitStrategy, Signaller {
+public class UnparkOnSignalWaitStrategy implements MessagePassingQueue.WaitStrategy, QueueSignalHandler {
 
     private final Thread consumerThread;
     private final AtomicBoolean signalNeeded = new AtomicBoolean(false);
@@ -24,7 +24,7 @@ public class UnparkOnSignalWaitStrategy implements MessagePassingQueue.WaitStrat
     }
 
     @Override
-    public void signal() {
+    public void onNotEmpty() {
         if (signalNeeded.get() && signalNeeded.compareAndSet(true, false)) {
             LockSupport.unpark(consumerThread);
         }
