@@ -34,11 +34,16 @@ public class SerializingApmEventConsumer implements MessagePassingQueue.Consumer
 
     private void serialize(Object event, DslJsonSerializer serializer) {
         if (event instanceof Span) {
-            serializer.serializeSpanNdJson((Span) event);
+            Span span = (Span) event;
+            serializer.serializeSpanNdJson(span);
+            span.decrementReferences();
         } else if (event instanceof Transaction) {
-            serializer.serializeTransactionNdJson((Transaction) event);
+            Transaction transaction = (Transaction) event;
+            serializer.serializeTransactionNdJson(transaction);
         } else if (event instanceof ErrorCapture) {
-            serializer.serializeErrorNdJson((ErrorCapture) event);
+            ErrorCapture errorCapture = (ErrorCapture) event;
+            serializer.serializeErrorNdJson(errorCapture);
+            errorCapture.recycle();
         } else if (event instanceof MetricRegistry) {
             serializer.serializeMetrics((MetricRegistry) event);
         } else {

@@ -10,31 +10,40 @@ public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener imp
 
     private final DrainableQueue<E, T> queue;
     private final Thread processingThread;
+    private final ProcessorLifecycleCallback callback;
     private final int shutdownTimeoutMillis;
     private final MessagePassingQueue.WaitStrategy waitStrategy;
     private final TimeoutExitCondition exitCondition;
     private final MessagePassingQueue.Consumer<T> consumer;
-    private final long minTickNanos;
+    private final long drainTimeout;
     private final QueueSignalHandler handler;
     private boolean stopRequested = false;
 
     public DrainableQueueProcessor(MessagePassingQueue.Supplier<DrainableQueue<E, T>> queueSupplier,
                                    MutableRunnableThread processingThread,
                                    MessagePassingQueue.Consumer<T> consumer,
+                                   ProcessorLifecycleCallback callback,
                                    long parkTimeNanos,
-                                   int minTickMillis,
+                                   int drainTimeout,
                                    int shutdownTimeoutMillis) {
 
         this.queue = queueSupplier.get();
         this.processingThread = processingThread;
+        this.callback = callback;
         this.shutdownTimeoutMillis = shutdownTimeoutMillis;
         UnparkOnSignalWaitStrategy unparkOnSignalWaitStrategy = new UnparkOnSignalWaitStrategy(processingThread, parkTimeNanos);
         this.handler = unparkOnSignalWaitStrategy;
-        this.waitStrategy = unparkOnSignalWaitStrategy;
+        this.waitStrategy = new MessagePassingQueue.WaitStrategy() {
+            @Override
+            public int idle(int idleCounter) {
+                callback.onIdle();
+                return unparkOnSignalWaitStrategy.idle(idleCounter);
+            }
+        };
         this.exitCondition = new TimeoutExitCondition();
         this.consumer = consumer;
         processingThread.setRunnable(this);
-        this.minTickNanos = TimeUnit.MILLISECONDS.toNanos(minTickMillis);
+        this.drainTimeout = TimeUnit.MILLISECONDS.toNanos(drainTimeout);
     }
 
     @Override
@@ -52,11 +61,14 @@ public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener imp
 
     @Override
     public void run() {
+        callback.onStart();
         while (!stopRequested) {
-            exitCondition.newTimeoutIn(minTickNanos);
+            exitCondition.newTimeoutIn(drainTimeout);
             queue.drain(consumer, waitStrategy, exitCondition);
+            callback.onTimeout();
         }
         exitWhenIdleOrAfterTimeout(shutdownTimeoutMillis);
+        callback.onShutdown();
     }
 
     private void exitWhenIdleOrAfterTimeout(int shutdownTimeoutMillis) {

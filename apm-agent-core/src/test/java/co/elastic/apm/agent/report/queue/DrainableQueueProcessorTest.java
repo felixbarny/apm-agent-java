@@ -35,8 +35,20 @@ public class DrainableQueueProcessorTest {
                 throw new RuntimeException(e);
             }
         };
-        stringQueueProcessor = new DrainableQueueProcessor<>(() -> DrainableQueue.MessagePassingQueueAdapter.of(new SpscArrayQueue<>(CAPACITY)), new MutableRunnableThread("string-processing"), stringConsumer, 100_000_000L, 100, 1000);
-        binaryQueueProcessor = new DrainableQueueProcessor<>(() -> new SpscOffHeapByteBuffer(1024), new MutableRunnableThread("byte-processing"), byteRingBufferConsumer, 100_000_000L, 100, 1000);
+        stringQueueProcessor = new DrainableQueueProcessor<>(() -> DrainableQueue.MessagePassingQueueAdapter.of(new SpscArrayQueue<>(CAPACITY)),
+            new MutableRunnableThread("string-processing"),
+            stringConsumer,
+            ProcessorLifecycleCallback.Noop.INSTANCE,
+            100_000_000L,
+            100,
+            1000);
+        binaryQueueProcessor = new DrainableQueueProcessor<>(() -> new SpscOffHeapByteBuffer(1024),
+            new MutableRunnableThread("byte-processing"),
+            byteRingBufferConsumer,
+            ProcessorLifecycleCallback.Noop.INSTANCE,
+            100_000_000L,
+            100,
+            1000);
         stringQueueProcessor.start(mock(ElasticApmTracer.class));
         binaryQueueProcessor.start(mock(ElasticApmTracer.class));
     }
