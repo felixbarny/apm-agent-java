@@ -35,25 +35,19 @@ public class SpscOffHeapByteBuffer extends OutputStream {
     private final int mask;
     private final long arrayBase;
     private final MessagePassingQueue.ExitCondition exitWhenEmpty;
-    private final QueueSignalHandler handler;
 
     public SpscOffHeapByteBuffer(final int capacity) {
-        this(capacity, QueueSignalHandler.Noop.INSTANCE);
-    }
-
-    public SpscOffHeapByteBuffer(final int capacity, QueueSignalHandler instance) {
         this(allocateAlignedByteBuffer(
             getRequiredBufferSize(capacity),
             PortableJvmInfo.CACHE_LINE_SIZE),
-            Pow2.roundToPowerOfTwo(capacity), instance);
+            Pow2.roundToPowerOfTwo(capacity));
     }
 
     public SpscOffHeapByteBuffer(final ByteBuffer buff,
-                                 final int capacity, QueueSignalHandler handler) {
+                                 final int capacity) {
         this.capacity = Pow2.roundToPowerOfTwo(capacity);
         buffy = alignedSlice(4 * PortableJvmInfo.CACHE_LINE_SIZE + this.capacity,
             PortableJvmInfo.CACHE_LINE_SIZE, buff);
-        this.handler = handler;
 
         long alignedAddress = UnsafeDirectByteBuffer.getAddress(buffy);
 
@@ -72,7 +66,7 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         exitWhenEmpty = new MessagePassingQueue.ExitCondition() {
             @Override
             public boolean keepRunning() {
-                return hasContent(getHeadPlain());
+                return !isEmpty();
             }
         };
     }
@@ -107,25 +101,24 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         // has to be aligned in blocks of 4 bytes so that writing the size of the array never wraps in-between
         // otherwise we couldn't use putInt
         int alignedSize = alignToMultipleOf4(size);
-        final long currentTail = getTailPlain();
-        long tail = currentTail;
         int totalBytesToWrite = alignedSize + 4;
+        final long currentTail = getTailPlain();
         if (!hasCapacity(totalBytesToWrite, currentTail)) {
             return false;
         }
 
         // writes the size of the array as we want to be able to read in steps that match the written byte arrays
-        UNSAFE.putInt(calcElementOffset(tail), size);
-        tail += 4;
-        int written = 0;
-        while (written < size) {
-            long copyBytes = Math.min(capacity - (tail & mask), size - written);
-            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset + written, null, calcElementOffset(tail), copyBytes);
-            tail += copyBytes;
-            written += copyBytes;
+        UNSAFE.putInt(calcElementOffset(currentTail), size);
+        long tail = currentTail + 4;
+        long toBufferEnd = capacity - (tail & mask);
+        if (toBufferEnd >= size) {
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset, null, calcElementOffset(tail), size);
+        } else {
+            // when the buffer wraps, write one chunk at the end and the other chunk at the beginning
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset, null, calcElementOffset(tail), toBufferEnd);
+            UNSAFE.copyMemory(bytes, ARRAY_BASE_OFFSET + offset + toBufferEnd, null, arrayBase, size - toBufferEnd);
         }
         setTail(currentTail + totalBytesToWrite);
-        handler.onNotEmpty();
         return true;
     }
 
@@ -151,20 +144,21 @@ public class SpscOffHeapByteBuffer extends OutputStream {
     public void writeTo(OutputStream os, byte[] buffer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) throws IOException {
         int idleCounter = 0;
         while (exitCondition.keepRunning()) {
-            long head = getHeadPlain();
-            if (!hasContent(head)) {
+            final long currentHead = getHeadPlain();
+            if (isEmpty(currentHead)) {
                 idleCounter = waitStrategy.idle(idleCounter);
                 continue;
             }
             idleCounter = 0;
-            final long currentHead = head;
-            final int size = UNSAFE.getInt(calcElementOffset(head));
+            final int size = UNSAFE.getInt(calcElementOffset(currentHead));
             assert size <= capacity - 4 : String.format("%d > %d", size, capacity - 4);
-            head += 4;
+            long head = currentHead + 4;
             int alignedSize = ((size + 3) / 4) * 4;
             int read = 0;
+            // read multiple times if buffer wraps or if provided byte[] buffer is smaller than the size of the event
             while (read < size) {
-                long copyBytes = Math.min(Math.min(capacity - (head & mask), size - read), buffer.length);
+                long toBufferEnd = capacity - (head & mask);
+                long copyBytes = Math.min(Math.min(toBufferEnd, size - read), buffer.length);
                 UNSAFE.copyMemory(null, calcElementOffset(head), buffer, ARRAY_BASE_OFFSET, copyBytes);
                 head += copyBytes;
                 read += copyBytes;
@@ -174,14 +168,14 @@ public class SpscOffHeapByteBuffer extends OutputStream {
         }
     }
 
-    private boolean hasContent(long currentHead) {
+    private boolean isEmpty(long currentHead) {
         if (currentHead >= getTailCache()) {
             setTailCache(getTail());
             if (currentHead >= getTailCache()) {
-                return false;
+                return true;
             }
         }
-        return true;
+        return false;
     }
 
     private long calcElementOffset(final long currentHead) {
