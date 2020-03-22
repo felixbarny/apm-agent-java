@@ -78,6 +78,10 @@ public class SpscOffHeapByteBuffer implements ByteRingBuffer {
         return 4 * PortableJvmInfo.CACHE_LINE_SIZE + p2Capacity;
     }
 
+    private static int alignToMultipleOf4(int size) {
+        return ((size + 3) / 4) * 4;
+    }
+
     @Override
     public boolean offer(final byte[] bytes) {
         return offer(bytes, bytes.length);
@@ -112,10 +116,6 @@ public class SpscOffHeapByteBuffer implements ByteRingBuffer {
         return true;
     }
 
-    private static int alignToMultipleOf4(int size) {
-        return ((size + 3) / 4) * 4;
-    }
-
     private boolean hasCapacity(int requestedCapacity, long currentTail) {
         final long wrapPoint = currentTail - capacity + requestedCapacity;
         if (getHeadCache() < wrapPoint) {
@@ -128,36 +128,49 @@ public class SpscOffHeapByteBuffer implements ByteRingBuffer {
     }
 
     @Override
-    public void writeTo(OutputStream os, byte[] buffer) throws IOException {
-        writeTo(os, buffer, exitWhenEmpty, BUSY_SPIN_WAIT_STRATEGY);
-    }
-
-    @Override
-    public void writeTo(OutputStream os, byte[] buffer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) throws IOException {
+    public void drain(MessagePassingQueue.Consumer<ByteRingBuffer> consumer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) {
         int idleCounter = 0;
         while (exitCondition.keepRunning()) {
-            final long currentHead = getHeadPlain();
+            long currentHead = getHeadPlain();
             if (isEmpty(currentHead)) {
                 idleCounter = waitStrategy.idle(idleCounter);
                 continue;
             }
             idleCounter = 0;
-            final int size = UNSAFE.getInt(calcElementOffset(currentHead));
-            assert size <= capacity - 4 : String.format("%d > %d", size, capacity - 4);
-            long head = currentHead + 4;
-            int alignedSize = ((size + 3) / 4) * 4;
-            int read = 0;
-            // read multiple times if buffer wraps or if provided byte[] buffer is smaller than the size of the event
-            while (read < size) {
-                long toBufferEnd = capacity - (head & mask);
-                long copyBytes = Math.min(Math.min(toBufferEnd, size - read), buffer.length);
-                UNSAFE.copyMemory(null, calcElementOffset(head), buffer, ARRAY_BASE_OFFSET, copyBytes);
-                head += copyBytes;
-                read += copyBytes;
-                os.write(buffer, 0, (int) copyBytes);
-            }
-            setHead(currentHead + 4 + alignedSize);
+            consumer.accept(this);
         }
+    }
+
+    @Override
+    public int writeTo(OutputStream os, byte[] buffer) throws IOException {
+        return writeTo(os, buffer, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public int writeTo(OutputStream os, byte[] buffer, int limit) throws IOException {
+        int i = 0;
+        for (; i < limit && !isEmpty(getHeadPlain()); i++) {
+            writeOne(os, buffer, getHeadPlain());
+        }
+        return i;
+    }
+
+    private void writeOne(OutputStream os, byte[] buffer, long currentHead) throws IOException {
+        final int size = UNSAFE.getInt(calcElementOffset(currentHead));
+        assert size <= capacity - 4 : String.format("%d > %d", size, capacity - 4);
+        long head = currentHead + 4;
+        int alignedSize = ((size + 3) / 4) * 4;
+        int read = 0;
+        // read multiple times if buffer wraps or if provided byte[] buffer is smaller than the size of the event
+        while (read < size) {
+            long toBufferEnd = capacity - (head & mask);
+            long copyBytes = Math.min(Math.min(toBufferEnd, size - read), buffer.length);
+            UNSAFE.copyMemory(null, calcElementOffset(head), buffer, ARRAY_BASE_OFFSET, copyBytes);
+            head += copyBytes;
+            read += copyBytes;
+            os.write(buffer, 0, (int) copyBytes);
+        }
+        setHead(currentHead + 4 + alignedSize);
     }
 
     private boolean isEmpty(long currentHead) {

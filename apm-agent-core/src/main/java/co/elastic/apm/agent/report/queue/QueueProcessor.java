@@ -6,7 +6,7 @@ import org.jctools.queues.MessagePassingQueue;
 
 import java.util.concurrent.TimeUnit;
 
-public class ConsumerProcessor<T> extends AbstractLifecycleListener implements Runnable {
+public class QueueProcessor<T> extends AbstractLifecycleListener implements Runnable {
 
     private final MessagePassingQueue<T> queue;
     private final Thread processingThread;
@@ -18,12 +18,12 @@ public class ConsumerProcessor<T> extends AbstractLifecycleListener implements R
     private final QueueSignalHandler handler;
     private boolean stopRequested = false;
 
-    public ConsumerProcessor(MessagePassingQueue.Supplier<MessagePassingQueue<T>> queueSupplier,
-                             MutableRunnableThread processingThread,
-                             MessagePassingQueue.Consumer<T> consumer,
-                             long parkTimeNanos,
-                             int minTickMillis,
-                             int shutdownTimeoutMillis) {
+    public QueueProcessor(MessagePassingQueue.Supplier<MessagePassingQueue<T>> queueSupplier,
+                          MutableRunnableThread processingThread,
+                          MessagePassingQueue.Consumer<T> consumer,
+                          long parkTimeNanos,
+                          int minTickMillis,
+                          int shutdownTimeoutMillis) {
 
         this.queue = queueSupplier.get();
         this.processingThread = processingThread;

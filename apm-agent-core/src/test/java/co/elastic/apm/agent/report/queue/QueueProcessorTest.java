@@ -13,22 +13,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.mock;
 
-public class ConsumerProcessorTest {
+public class QueueProcessorTest {
 
     private static final int THREAD_LOCAL_CAPACITY = 4;
-    private ConsumerProcessor<String> consumerProcessor;
+    private QueueProcessor<String> queueProcessor;
     private List<String> processedEvents = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         MutableRunnableThread thread = new MutableRunnableThread("processing");
-        consumerProcessor = new ConsumerProcessor<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY + 1), thread, processedEvents::add, 100_000_000L, 100, 1000);
-        consumerProcessor.start(mock(ElasticApmTracer.class));
+        queueProcessor = new QueueProcessor<>(() -> new SpscArrayQueue<>(THREAD_LOCAL_CAPACITY + 1), thread, processedEvents::add, 100_000_000L, 100, 1000);
+        queueProcessor.start(mock(ElasticApmTracer.class));
     }
 
     @AfterEach
     void tearDown() throws InterruptedException {
-        consumerProcessor.stop();
+        queueProcessor.stop();
     }
 
     @Test
@@ -47,7 +47,7 @@ public class ConsumerProcessorTest {
 
     private void testProcessing(List<String> events) {
         for (String event : events) {
-            consumerProcessor.offer(event);
+            queueProcessor.offer(event);
         }
         await().untilAsserted(() -> assertThat(processedEvents).isEqualTo(events));
     }

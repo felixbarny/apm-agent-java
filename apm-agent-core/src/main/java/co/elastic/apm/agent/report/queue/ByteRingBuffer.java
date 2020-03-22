@@ -11,7 +11,9 @@ public interface ByteRingBuffer {
 
     boolean offer(byte[] bytes, int size);
 
-    void writeTo(OutputStream os, byte[] buffer) throws IOException;
+    int writeTo(OutputStream os, byte[] buffer) throws IOException;
 
-    void writeTo(OutputStream os, byte[] buffer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy) throws IOException;
+    int writeTo(OutputStream os, byte[] buffer, int limit) throws IOException;
+
+    void drain(MessagePassingQueue.Consumer<ByteRingBuffer> consumer, MessagePassingQueue.ExitCondition exitCondition, MessagePassingQueue.WaitStrategy waitStrategy);
 }

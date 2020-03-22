@@ -101,7 +101,13 @@ public class SpscOffHeapByteBufferTest {
         buffer = new SpscOffHeapByteBuffer(32);
         Future<byte[]> bytesFuture = executorService.submit(() -> {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            buffer.writeTo(baos, new byte[16], () -> baos.size() < 2, idleCounter -> idleCounter);
+            buffer.drain(buf -> {
+                try {
+                    buf.writeTo(baos, new byte[16], 1);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }, () -> baos.size() < 2, idleCounter -> idleCounter);
             return baos.toByteArray();
         });
 
