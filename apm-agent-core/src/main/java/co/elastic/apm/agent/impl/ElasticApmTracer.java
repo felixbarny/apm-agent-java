@@ -555,7 +555,7 @@ public class ElasticApmTracer {
         logger.info("Tracer switched to STOPPED state");
         try {
             configurationRegistry.close();
-            reporter.close();
+            reporter.stop();
         } catch (Exception e) {
             logger.warn("Suppressed exception while calling stop()", e);
         }

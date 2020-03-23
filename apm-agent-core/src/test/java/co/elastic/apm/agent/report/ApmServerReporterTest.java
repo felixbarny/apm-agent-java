@@ -56,6 +56,7 @@ class ApmServerReporterTest {
         when(reporterConfiguration.getMaxQueueSize()).thenReturn(0);
         reportingEventHandler = mock(ReportingEventHandler.class);
         reporter = new ApmServerReporter(true, reporterConfiguration, reportingEventHandler);
+        reporter.start();
     }
 
     @Test

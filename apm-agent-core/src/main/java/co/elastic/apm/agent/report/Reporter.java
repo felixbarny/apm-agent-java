@@ -30,10 +30,11 @@ import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.Transaction;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 
-import java.io.Closeable;
 import java.util.concurrent.Future;
 
-public interface Reporter extends Closeable {
+public interface Reporter {
+
+    void start();
 
     void report(Transaction transaction);
 
@@ -47,8 +48,7 @@ public interface Reporter extends Closeable {
 
     Future<Void> flush();
 
-    @Override
-    void close();
+    void stop() throws Exception;
 
     void scheduleMetricReporting(MetricRegistry metricRegistry, long intervalMs, final ElasticApmTracer tracer);
 }

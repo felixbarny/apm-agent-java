@@ -58,7 +58,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.*;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -109,6 +109,11 @@ public class MockReporter implements Reporter {
 
     public void disableDestinationAddressCheck() {
         disableDestinationAddressCheck = true;
+    }
+
+    @Override
+    public void start() {
+        // I was born ready
     }
 
     @Override
@@ -277,7 +282,7 @@ public class MockReporter implements Reporter {
     }
 
     @Override
-    public void close() {
+    public void stop() {
         closed = true;
     }
 

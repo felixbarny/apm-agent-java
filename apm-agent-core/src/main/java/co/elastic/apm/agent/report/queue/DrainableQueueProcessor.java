@@ -1,14 +1,13 @@
 package co.elastic.apm.agent.report.queue;
 
-import co.elastic.apm.agent.context.AbstractLifecycleListener;
-import co.elastic.apm.agent.impl.ElasticApmTracer;
 import org.jctools.queues.MessagePassingQueue;
 
 import java.util.concurrent.TimeUnit;
 
-public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener implements Runnable {
+public class DrainableQueueProcessor<E, T> implements Runnable {
 
-    private final DrainableQueue<E, T> queue;
+    protected final DrainableQueue<E, T> queue;
+    protected final QueueSignalHandler handler;
     private final Thread processingThread;
     private final ProcessorLifecycleCallback callback;
     private final int shutdownTimeoutMillis;
@@ -16,10 +15,9 @@ public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener imp
     private final TimeoutExitCondition exitCondition;
     private final MessagePassingQueue.Consumer<T> consumer;
     private final long drainTimeout;
-    private final QueueSignalHandler handler;
     private boolean stopRequested = false;
 
-    public DrainableQueueProcessor(MessagePassingQueue.Supplier<DrainableQueue<E, T>> queueSupplier,
+    public DrainableQueueProcessor(MessagePassingQueue.Supplier<? extends DrainableQueue<E, T>> queueSupplier,
                                    MutableRunnableThread processingThread,
                                    MessagePassingQueue.Consumer<T> consumer,
                                    ProcessorLifecycleCallback callback,
@@ -46,8 +44,7 @@ public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener imp
         this.drainTimeout = TimeUnit.MILLISECONDS.toNanos(drainTimeout);
     }
 
-    @Override
-    public void start(ElasticApmTracer tracer) {
+    public void start() {
         processingThread.start();
     }
 
@@ -82,8 +79,7 @@ public class DrainableQueueProcessor<E, T> extends AbstractLifecycleListener imp
         }, exitCondition);
     }
 
-    @Override
-    public void stop() throws InterruptedException {
+    public void stop() throws Exception {
         // not interrupting the thread as it would make LockSupport.park return immediately
         stopRequested = true;
         processingThread.join(shutdownTimeoutMillis);

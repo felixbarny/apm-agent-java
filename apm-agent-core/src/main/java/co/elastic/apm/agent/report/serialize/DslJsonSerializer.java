@@ -58,7 +58,7 @@ import co.elastic.apm.agent.metrics.Labels;
 import co.elastic.apm.agent.metrics.MetricRegistry;
 import co.elastic.apm.agent.metrics.MetricSet;
 import co.elastic.apm.agent.report.ApmServerClient;
-import co.elastic.apm.agent.report.queue.ByteRingBuffer;
+import co.elastic.apm.agent.report.queue.ByteRingBufferProcessor;
 import co.elastic.apm.agent.util.PotentiallyMultiValuedMap;
 import com.dslplatform.json.BoolConverter;
 import com.dslplatform.json.DslJson;
@@ -133,7 +133,7 @@ public class DslJsonSerializer implements PayloadSerializer, MetricRegistry.Metr
     }
 
     @Override
-    public boolean writeTo(ByteRingBuffer bq) {
+    public boolean writeTo(ByteRingBufferProcessor bq) {
         boolean offered = bq.offer(jw.getByteBuffer(), jw.size());
         jw.reset();
         return offered;

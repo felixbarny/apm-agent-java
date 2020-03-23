@@ -115,12 +115,17 @@ public class ApmServerReporter implements Reporter {
         this.reportingEventHandler = reportingEventHandler;
         disruptor.setDefaultExceptionHandler(new IgnoreExceptionHandler());
         disruptor.handleEventsWith(this.reportingEventHandler);
-        disruptor.start();
         reportingEventHandler.init(this);
     }
 
     @Override
+    public void start() {
+        disruptor.start();
+    }
+
+    @Override
     public void report(Transaction transaction) {
+        transaction.trackMetrics();
         if (!tryAddEventToRingBuffer(transaction, TRANSACTION_EVENT_TRANSLATOR)) {
             transaction.decrementReferences();
         }
@@ -221,7 +226,7 @@ public class ApmServerReporter implements Reporter {
     }
 
     @Override
-    public void close() {
+    public void stop() {
         logger.info("dropped events because of full queue: {}", dropped.get());
         disruptor.getRingBuffer().tryPublishEvent(SHUTDOWN_EVENT_TRANSLATOR);
         try {

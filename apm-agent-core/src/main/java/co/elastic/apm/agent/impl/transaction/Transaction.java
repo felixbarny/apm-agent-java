@@ -211,7 +211,6 @@ public class Transaction extends AbstractSpan<Transaction> {
 
     @Override
     protected void afterEnd() {
-        trackMetrics();
         this.tracer.endTransaction(this);
     }
 
@@ -319,7 +318,7 @@ public class Transaction extends AbstractSpan<Transaction> {
         }
     }
 
-    private void trackMetrics() {
+    public void trackMetrics() {
         try {
             phaser.readerLock();
             phaser.flipPhase();

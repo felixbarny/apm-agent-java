@@ -32,14 +32,12 @@ import co.elastic.apm.agent.impl.error.ErrorCapture;
 import co.elastic.apm.agent.impl.payload.ProcessInfo;
 import co.elastic.apm.agent.impl.payload.Service;
 import co.elastic.apm.agent.impl.payload.SystemInfo;
-import co.elastic.apm.agent.impl.stacktrace.StacktraceConfiguration;
 import co.elastic.apm.agent.impl.transaction.Span;
 import co.elastic.apm.agent.impl.transaction.Transaction;
-import co.elastic.apm.agent.report.processor.ProcessorEventHandler;
-import co.elastic.apm.agent.report.serialize.DslJsonSerializer;
 import io.undertow.Undertow;
 import io.undertow.server.HttpHandler;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +51,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ApmServerReporterIntegrationTest {
@@ -64,7 +61,7 @@ class ApmServerReporterIntegrationTest {
     private static HttpHandler handler;
     private final ElasticApmTracer tracer = MockTracer.create();
     private ReporterConfiguration reporterConfiguration;
-    private ApmServerReporter reporter;
+    private Reporter reporter;
 
     @BeforeAll
     static void startServer() {
@@ -99,15 +96,15 @@ class ApmServerReporterIntegrationTest {
         SystemInfo system = new SystemInfo("x64", "localhost", "platform");
         final Service service = new Service();
         final ProcessInfo title = new ProcessInfo("title");
-        final ProcessorEventHandler processorEventHandler = ProcessorEventHandler.loadProcessors(config);
         ApmServerClient apmServerClient = new ApmServerClient(reporterConfiguration);
-        final IntakeV2ReportingEventHandler v2handler = new IntakeV2ReportingEventHandler(
-            reporterConfiguration,
-            processorEventHandler,
-            new DslJsonSerializer(mock(StacktraceConfiguration.class), apmServerClient),
-            new MetaData(title, service, system, Collections.emptyMap()),
-            apmServerClient);
-        reporter = new ApmServerReporter(false, reporterConfiguration, v2handler);
+        MetaData metaData = new MetaData(title, service, system, Collections.emptyMap());
+        reporter = new ReporterFactory().createReporter(config, apmServerClient, metaData);
+        reporter.start();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        reporter.stop();
     }
 
     @Test

@@ -136,6 +136,7 @@ public class ElasticApmTracerBuilder {
         }
         if (reporter == null) {
             reporter = new ReporterFactory().createReporter(configurationRegistry, apmServerClient, metaData);
+            reporter.start();
         }
         ElasticApmTracer tracer = new ElasticApmTracer(configurationRegistry, reporter, objectPoolFactory);
         lifecycleListeners.addAll(DependencyInjectingServiceLoader.load(LifecycleListener.class, tracer));

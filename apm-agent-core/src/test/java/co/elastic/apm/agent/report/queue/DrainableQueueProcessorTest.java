@@ -1,6 +1,5 @@
 package co.elastic.apm.agent.report.queue;
 
-import co.elastic.apm.agent.impl.ElasticApmTracer;
 import org.jctools.queues.MessagePassingQueue;
 import org.jctools.queues.SpscArrayQueue;
 import org.junit.jupiter.api.AfterEach;
@@ -14,7 +13,6 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.mock;
 
 public class DrainableQueueProcessorTest {
 
@@ -49,12 +47,12 @@ public class DrainableQueueProcessorTest {
             100_000_000L,
             100,
             1000);
-        stringQueueProcessor.start(mock(ElasticApmTracer.class));
-        binaryQueueProcessor.start(mock(ElasticApmTracer.class));
+        stringQueueProcessor.start();
+        binaryQueueProcessor.start();
     }
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown() throws Exception {
         stringQueueProcessor.stop();
         binaryQueueProcessor.stop();
     }
