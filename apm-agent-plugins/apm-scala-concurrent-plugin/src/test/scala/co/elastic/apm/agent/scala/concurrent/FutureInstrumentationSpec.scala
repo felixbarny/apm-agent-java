@@ -36,19 +36,19 @@ class FutureInstrumentationSpec extends FunSuite {
     implicit val executionContext: ExecutionContextExecutor =
       ExecutionContext.fromExecutor(Executors.newFixedThreadPool(1))
 
-    Future("Test")
+    val future = Future("Test")
       .map(_.length)
       .flatMap(l => Future(l * 2))
       .map(_.toString)
       .flatMap(s => Future(s"$s-$s"))
       .map(_ => tracer.currentTransaction().addCustomContext("future", true))
-      .map { _ =>
-        transaction.deactivate().end()
-        assertEquals(
-          reporter.getTransactions.get(0).getContext.getCustom("future").asInstanceOf[Boolean],
-          true
-        )
-      }
+    Await.ready(future, 10.seconds)
+    transaction.deactivate().end()
+    assertEquals(
+      reporter.getTransactions.get(0).getContext.getCustom("future").asInstanceOf[Boolean],
+      true
+    )
+
   }
 
   test("Worker thread should correctly set context on the current transaction") {
@@ -70,7 +70,7 @@ class FutureInstrumentationSpec extends FunSuite {
     implicit val multiPoolEc: ExecutionContextExecutor =
       ExecutionContext.fromExecutor(Executors.newFixedThreadPool(3))
 
-    Future
+    val future = Future
       .traverse(1 to 100) { _ =>
         Future.sequence(List(
           Future {
@@ -87,22 +87,20 @@ class FutureInstrumentationSpec extends FunSuite {
           }
         ))
       }
-      .map { _ =>
-        transaction.deactivate().end()
-        assertEquals(
-          reporter.getTransactions.get(0).getContext.getCustom("future1").asInstanceOf[Boolean],
-          true
-        )
-        assertEquals(
-          reporter.getTransactions.get(0).getContext.getCustom("future2").asInstanceOf[Boolean],
-          true
-        )
-        assertEquals(
-          reporter.getTransactions.get(0).getContext.getCustom("future3").asInstanceOf[Boolean],
-          true
-        )
-      }
-
+    Await.ready(future, 10.seconds)
+    transaction.deactivate().end()
+    assertEquals(
+      reporter.getTransactions.get(0).getContext.getCustom("future1").asInstanceOf[Boolean],
+      true
+    )
+    assertEquals(
+      reporter.getTransactions.get(0).getContext.getCustom("future2").asInstanceOf[Boolean],
+      true
+    )
+    assertEquals(
+      reporter.getTransactions.get(0).getContext.getCustom("future3").asInstanceOf[Boolean],
+      true
+    )
   }
 
 }
