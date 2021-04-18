@@ -272,7 +272,15 @@ public class ElasticApmTracer implements Tracer {
      * @see #startSpan(TraceContext.ChildContextCreator, Object)
      */
     public <T> Span startSpan(TraceContext.ChildContextCreator<T> childContextCreator, T parentContext, long epochMicros) {
-        return createSpan().start(childContextCreator, parentContext, epochMicros);
+        Span span = null;
+        if (parentContext instanceof AbstractSpan) {
+            AbstractSpan<?> parent = (AbstractSpan<?>) parentContext;
+            span = parent.retrieveRecycled();
+        }
+        if (span == null) {
+            span = createSpan();
+        }
+        return span.start(childContextCreator, parentContext, epochMicros);
     }
 
     private Span createSpan() {
@@ -408,11 +416,28 @@ public class ElasticApmTracer implements Tracer {
     }
 
     public void recycle(Transaction transaction) {
+        recycleBuffered(transaction);
         transactionPool.recycle(transaction);
     }
 
     public void recycle(Span span) {
-        spanPool.recycle(span);
+        recycleBuffered(span);
+        if (span.isDiscarded()) {
+            AbstractSpan<?> parent = span.getParent();
+            span.resetState();
+            if (parent != null && !parent.offerRecycled(span)) {
+                spanPool.recycle(span);
+            }
+        } else {
+            spanPool.recycle(span);
+        }
+    }
+
+    private void recycleBuffered(AbstractSpan<?> span) {
+        Span recycled = span.retrieveRecycled();
+        if (recycled != null) {
+            recycle(recycled);
+        }
     }
 
     public void recycle(ErrorCapture error) {

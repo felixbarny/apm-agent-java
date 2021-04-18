@@ -37,10 +37,7 @@ import co.elastic.apm.agent.util.KeyListConcurrentHashMap;
 import org.HdrHistogram.WriterReaderPhaser;
 
 import javax.annotation.Nullable;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Data captured by an agent representing an event occurring in a monitored service
@@ -95,6 +92,7 @@ public class Transaction extends AbstractSpan<Transaction> {
     private volatile String type;
 
     private int maxSpans;
+    protected long spanMinDurationUs;
 
     @Nullable
     private String frameworkName;
@@ -128,7 +126,9 @@ public class Transaction extends AbstractSpan<Transaction> {
     }
 
     private void onTransactionStart(boolean startedAsChild, long epochMicros, Sampler sampler) {
-        maxSpans = tracer.getConfig(CoreConfiguration.class).getTransactionMaxSpans();
+        CoreConfiguration config = tracer.getConfig(CoreConfiguration.class);
+        maxSpans = config.getTransactionMaxSpans();
+        spanMinDurationUs = config.getSpanMinDuration().getMicros();
         if (!startedAsChild) {
             traceContext.asRootSpan(sampler);
         }
@@ -241,11 +241,13 @@ public class Transaction extends AbstractSpan<Transaction> {
         incrementTimer("app", null, getSelfDuration());
     }
 
-
-
     @Override
     protected void afterEnd() {
         trackMetrics();
+        Span buffered = getAndRemoveBufferedSpan();
+        if (buffered != null) {
+            this.tracer.endSpan(buffered);
+        }
         this.tracer.endTransaction(this);
     }
 
@@ -270,6 +272,7 @@ public class Transaction extends AbstractSpan<Transaction> {
         type = null;
         noop = false;
         maxSpans = 0;
+        spanMinDurationUs = 0;
         frameworkName = null;
         frameworkVersion = null;
         // don't clear timerBySpanTypeAndSubtype map (see field-level javadoc)

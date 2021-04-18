@@ -29,12 +29,15 @@ import co.elastic.apm.agent.impl.ElasticApmTracer;
 import co.elastic.apm.agent.impl.context.SpanContext;
 import co.elastic.apm.agent.impl.context.web.ResultUtil;
 import co.elastic.apm.agent.objectpool.Recyclable;
+import co.elastic.apm.agent.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Span extends AbstractSpan<Span> implements Recyclable {
 
@@ -75,6 +78,7 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     private Transaction transaction;
     @Nullable
     private List<StackFrame> stackFrames;
+    private int compressedCount = 0;
 
     /**
      * If a span is non-discardable, all the spans leading up to it are non-discardable as well
@@ -260,7 +264,20 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
 
     @Override
     protected void afterEnd() {
-        this.tracer.endSpan(this);
+        if (parent == null) {
+            tracer.endSpan(this);
+            return;
+        }
+
+        if (isExit() && isDiscardable() && transaction != null) {
+            parent.tryCompressSpan(this, transaction.spanMinDurationUs);
+        } else {
+            Span buffered = getAndRemoveBufferedSpan();
+            if (buffered != null) {
+                tracer.endSpan(buffered);
+            }
+            tracer.endSpan(this);
+        }
     }
 
     @Override
@@ -278,6 +295,7 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
         // when trying to recycle this list by clearing it, we increase the static memory overhead of the agent
         // because all spans in the pool contain that list even if they are not used as inferred spans
         stackFrames = null;
+        compressedCount = 0;
     }
 
     @Override
@@ -308,6 +326,8 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
 
     @Override
     protected void recycle() {
+        // TODO don't put back in pool, rather store in instance variable of parent
+        //   -> less pool contention when span is discarded (ex. fast, not sampled, compressed)
         tracer.recycle(this);
     }
 
@@ -335,4 +355,38 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
     public AbstractSpan<?> getParent() {
         return parent;
     }
+
+    public int getCompressedCount() {
+        return compressedCount;
+    }
+
+    boolean isSameKind(Span other) {
+        return Objects.equals(type, other.type)
+            && Objects.equals(subtype, other.subtype)
+            && StringUtils.equals(getContext().getDestination().getService().getResource(), other.getContext().getDestination().getService().getResource());
+    }
+
+    boolean isDuplicate(Span other) {
+        return Objects.equals(type, other.type)
+            && Objects.equals(subtype, other.subtype)
+            && StringUtils.equals(getContext().getDestination().getService().getResource(), other.getContext().getDestination().getService().getResource())
+            && StringUtils.equals(name, other.name);
+    }
+
+    /**
+     * This method is guaranteed not to be executed concurrently.
+     * Also, there's a memory barrier before and after this method is executed.
+     * This implies that the manipulated values don't have to volatile.
+     *
+     * @param other
+     */
+    protected void compress(Span other) {
+        if (compressedCount == 0) {
+            compressedCount = 2;
+        } else {
+            compressedCount++;
+        }
+        endTimestamp = Math.max(endTimestamp, other.endTimestamp);
+    }
+
 }

@@ -32,6 +32,7 @@ import co.elastic.apm.agent.impl.context.AbstractContext;
 import co.elastic.apm.agent.matcher.WildcardMatcher;
 import co.elastic.apm.agent.objectpool.Recyclable;
 import co.elastic.apm.agent.report.ReporterConfiguration;
+import co.elastic.apm.agent.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +40,7 @@ import javax.annotation.Nullable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recyclable {
     public static final int PRIO_USER_SUPPLIED = 1000;
@@ -59,7 +61,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
     private long timestamp;
 
     // in microseconds
-    protected long duration;
+    protected long endTimestamp;
     private ChildDurationTimer childDurations = new ChildDurationTimer();
     protected AtomicInteger references = new AtomicInteger();
     protected volatile boolean finished = true;
@@ -111,6 +113,9 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
 
     private boolean hasCapturedExceptions;
 
+    private final AtomicReference<Span> bufferedCompressionCandidate = new AtomicReference<>();
+    private final AtomicReference<Span> recycled = new AtomicReference<>();
+
     public int getReferenceCount() {
         return references.get();
     }
@@ -141,6 +146,76 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
 
     @Nullable
     public abstract Transaction getTransaction();
+
+    protected void tryCompressSpan(Span newCandidate, long spanMinDurationUs) {
+        // we have exclusive access to this reference as it's removed from the AtomicReference
+        Span bufferedCandidate = retrieveOrSetBuffered(newCandidate);
+        // re-tries in case of race conditions:
+        // when another thread has set a buffered candidate while the body of the loop runs
+        while (bufferedCandidate != null) {
+            boolean compress = false;
+            if (newCandidate.isSameKind(bufferedCandidate)) {
+                if (StringUtils.equals(bufferedCandidate.name, newCandidate.name)) {
+                    // exact match - compress regardless of duration
+                    compress = true;
+                } else if (bufferedCandidate.getDuration() < spanMinDurationUs && newCandidate.getDuration() < spanMinDurationUs) {
+                    // same kind match - compress if both are faster than threshold
+                    compress = true;
+                    StringBuilder spanName = bufferedCandidate.getAndOverrideName(Integer.MAX_VALUE, true);
+                    if (spanName != null) {
+                        spanName.setLength(0);
+                        spanName.append("Calls to ").append(bufferedCandidate.getContext().getDestination().getService().getName());
+                    }
+                }
+            }
+            if (compress) {
+                bufferedCandidate.compress(newCandidate);
+                newCandidate.requestDiscarding();
+                newCandidate.decrementReferences();
+                newCandidate = bufferedCandidate;
+                bufferedCandidate = retrieveOrSetBuffered(bufferedCandidate);
+            } else {
+                // the buffered compression candidate turned out not to be compressible
+                tracer.endSpan(bufferedCandidate);
+                // try to buffer the new candidate, or re-try if a new buffered candidate has been set concurrently
+                bufferedCandidate = retrieveOrSetBuffered(newCandidate);
+            }
+        }
+    }
+
+    @Nullable
+    private Span retrieveOrSetBuffered(Span span) {
+        Span buffered = null;
+        // either buffer child or get span from buffer
+        while (buffered == null) {
+            buffered = bufferedCompressionCandidate.getAndSet(null);
+            if (buffered == null) {
+                if (bufferedCompressionCandidate.compareAndSet(null, span)) {
+                    // nothing has been buffered previously
+                    // now child is buffered
+                    return null;
+                }
+                // else: race condition - buffer was empty but contains a value set by another thread now, retry
+            }
+        }
+        return buffered;
+    }
+
+    /**
+     * Offers a {@linkplain Recyclable#resetState() recycled} instance that can be re-used when creating child spans.
+     * This can avoid contention caused by interactions with a {@link co.elastic.apm.agent.objectpool.ObjectPool}.
+     *
+     * @param span A {@linkplain Recyclable#resetState() recycled} span instance.
+     * @return {@code true}, if the span has been stored, {@code false} if there was no capacity to store the span.
+     */
+    public boolean offerRecycled(Span span) {
+        return recycled.compareAndSet(null, span);
+    }
+
+    @Nullable
+    public Span retrieveRecycled() {
+        return recycled.getAndSet(null);
+    }
 
     private static class ChildDurationTimer implements Recyclable {
 
@@ -217,15 +292,15 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
      * How long the transaction took to complete, in µs
      */
     public long getDuration() {
-        return duration;
+        return endTimestamp - timestamp;
     }
 
     public long getSelfDuration() {
-        return duration - childDurations.getDuration();
+        return getDuration() - childDurations.getDuration();
     }
 
     public double getDurationMs() {
-        return duration / AbstractSpan.MS_IN_MICROS;
+        return getDuration() / AbstractSpan.MS_IN_MICROS;
     }
 
     /**
@@ -336,7 +411,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
         finished = true;
         name.setLength(0);
         timestamp = 0;
-        duration = 0;
+        endTimestamp = 0;
         traceContext.resetState();
         childDurations.resetState();
         references.set(0);
@@ -347,6 +422,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
         outcome = null;
         userOutcome = null;
         hasCapturedExceptions = false;
+        bufferedCompressionCandidate.set(null);
     }
 
     public Span createSpan() {
@@ -439,7 +515,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
 
     public final void end(long epochMicros) {
         if (!finished) {
-            this.duration = (epochMicros - timestamp);
+            endTimestamp = epochMicros;
             if (name.length() == 0) {
                 name.append("unnamed");
             }
@@ -652,6 +728,11 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
     public T withUserOutcome(Outcome outcome) {
         this.userOutcome = outcome;
         return thiz();
+    }
+
+    @Nullable
+    public Span getAndRemoveBufferedSpan() {
+        return bufferedCompressionCandidate.getAndSet(null);
     }
 
 }
