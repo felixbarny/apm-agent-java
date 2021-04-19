@@ -149,36 +149,39 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
 
     protected void tryCompressSpan(Span newCandidate, long spanMinDurationUs) {
         // we have exclusive access to this reference as it's removed from the AtomicReference
-        Span bufferedCandidate = retrieveOrSetBuffered(newCandidate);
+        Span candidateFromBuffer = retrieveOrSetBuffered(newCandidate);
         // re-tries in case of race conditions:
         // when another thread has set a buffered candidate while the body of the loop runs
-        while (bufferedCandidate != null) {
+        while (candidateFromBuffer != null) {
             boolean compress = false;
-            if (newCandidate.isSameKind(bufferedCandidate)) {
-                if (StringUtils.equals(bufferedCandidate.name, newCandidate.name)) {
+            if (newCandidate.isSameKind(candidateFromBuffer)) {
+                if (StringUtils.equals(candidateFromBuffer.name, newCandidate.name)) {
                     // exact match - compress regardless of duration
                     compress = true;
-                } else if (bufferedCandidate.getDuration() < spanMinDurationUs && newCandidate.getDuration() < spanMinDurationUs) {
+                } else if (candidateFromBuffer.getDuration() < spanMinDurationUs && newCandidate.getDuration() < spanMinDurationUs) {
                     // same kind match - compress if both are faster than threshold
                     compress = true;
-                    StringBuilder spanName = bufferedCandidate.getAndOverrideName(Integer.MAX_VALUE, false);
+                    StringBuilder spanName = candidateFromBuffer.getAndOverrideName(Integer.MAX_VALUE, false);
                     if (spanName != null) {
                         spanName.setLength(0);
-                        spanName.append("Calls to ").append(bufferedCandidate.getContext().getDestination().getService().getName());
+                        spanName.append("Calls to ").append(candidateFromBuffer.getContext().getDestination().getService().getName());
                     }
                 }
             }
             if (compress) {
-                bufferedCandidate.compress(newCandidate);
+                candidateFromBuffer.compress(newCandidate);
                 newCandidate.requestDiscarding();
+                // recycles the span
                 newCandidate.decrementReferences();
-                newCandidate = bufferedCandidate;
-                bufferedCandidate = retrieveOrSetBuffered(bufferedCandidate);
+                // required in case we need to re-try
+                newCandidate = candidateFromBuffer;
+                // try to put the candidateFromBuffer back to the buffer, or re-try if a new buffered candidate has been set concurrently
+                candidateFromBuffer = retrieveOrSetBuffered(candidateFromBuffer);
             } else {
                 // the buffered compression candidate turned out not to be compressible
-                tracer.endSpan(bufferedCandidate);
+                tracer.endSpan(candidateFromBuffer);
                 // try to buffer the new candidate, or re-try if a new buffered candidate has been set concurrently
-                bufferedCandidate = retrieveOrSetBuffered(newCandidate);
+                candidateFromBuffer = retrieveOrSetBuffered(newCandidate);
             }
         }
     }
