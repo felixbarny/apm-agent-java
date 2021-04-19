@@ -161,7 +161,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
                 } else if (bufferedCandidate.getDuration() < spanMinDurationUs && newCandidate.getDuration() < spanMinDurationUs) {
                     // same kind match - compress if both are faster than threshold
                     compress = true;
-                    StringBuilder spanName = bufferedCandidate.getAndOverrideName(Integer.MAX_VALUE, true);
+                    StringBuilder spanName = bufferedCandidate.getAndOverrideName(Integer.MAX_VALUE, false);
                     if (spanName != null) {
                         spanName.setLength(0);
                         spanName.append("Calls to ").append(bufferedCandidate.getContext().getDestination().getService().getName());
