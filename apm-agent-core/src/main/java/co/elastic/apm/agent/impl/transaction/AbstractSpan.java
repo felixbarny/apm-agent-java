@@ -152,6 +152,7 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
         Span candidateFromBuffer = retrieveOrSetBuffered(newCandidate);
         // re-tries in case of race conditions:
         // when another thread has set a buffered candidate while the body of the loop runs
+        // there's no risk of ths being an infinite loop as it's guaranteed to make progress, even in case of race conditions
         while (candidateFromBuffer != null) {
             boolean compress = false;
             if (newCandidate.isSameKind(candidateFromBuffer)) {
@@ -186,6 +187,19 @@ public abstract class AbstractSpan<T extends AbstractSpan<T>> implements Recycla
         }
     }
 
+    /**
+     * If {@link #bufferedCompressionCandidate} is empty, sets the provided span.
+     * Otherwise, gets and removes the span from {@link #bufferedCompressionCandidate}.
+     * By clearing the {@link AtomicReference},
+     * we can guarantee that threads have exclusive access to the {@link Span} instance within {@link #tryCompressSpan}.
+     * <p>
+     * This method also acts as a memory barrier so that {@link Span#compress} doesn't have to do volatile reads/writes.
+     * </p>
+     *
+     * @param span the span to store in {@link #bufferedCompressionCandidate}
+     * @return the {@link #bufferedCompressionCandidate}, or {@code null} if empty.
+     * A {@code null} return value also indicates that the provided span has been set in {@link #bufferedCompressionCandidate}.
+     */
     @Nullable
     private Span retrieveOrSetBuffered(Span span) {
         Span buffered = null;

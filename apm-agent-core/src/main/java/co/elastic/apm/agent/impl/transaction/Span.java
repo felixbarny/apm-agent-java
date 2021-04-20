@@ -377,6 +377,7 @@ public class Span extends AbstractSpan<Span> implements Recyclable {
      * This method is guaranteed not to be executed concurrently.
      * Also, there's a memory barrier before and after this method is executed.
      * This implies that the manipulated values don't have to volatile.
+     * See also {@link AbstractSpan#retrieveOrSetBuffered}
      *
      * @param other
      */
